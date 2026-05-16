@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Strudel → Score</title>
+<script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js"></script>
+<style>
+  :root {
+    --bg: #0e0e0e;
+    --surface: #161616;
+    --border: #2a2a2a;
+    --accent: #c8f060;
+    --accent2: #60c8f0;
+    --text: #e8e8e0;
+    --muted: #666;
+    --font-mono: 'Courier New', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 32px;
+    gap: 24px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+  }
+
+  h1 {
+    font-size: 13px;
+    font-weight: normal;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .pattern-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    padding: 12px 16px;
+    outline: none;
+    transition: border-color 0.15s;
+    letter-spacing: 0.04em;
+  }
+
+  .pattern-input:focus {
+    border-color: var(--accent);
+  }
+
+  .convert-btn {
+    background: var(--accent);
+    color: #0e0e0e;
+    border: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 0 24px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.05s;
+  }
+
+  .convert-btn:hover { background: #d8ff70; }
+  .convert-btn:active { transform: scale(0.97); }
+  .convert-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+
+  .presets {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .presets-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+
+  .preset-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.1s;
+  }
+
+  .preset-btn:hover {
+    border-color: var(--accent2);
+    color: var(--accent2);
+  }
+
+  .options-row {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .option {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+
+  .option label { cursor: pointer; text-transform: uppercase; }
+
+  select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 8px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  select:focus { border-color: var(--accent); }
+
+  .score-area {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    position: relative;
+    overflow-x: auto;
+  }
+
+  .score-area svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Verovio SVG theming */
+  .score-area svg g[id^="page"] { fill: var(--text); }
+  .score-area .verovio-score { filter: invert(1) hue-rotate(180deg); }
+
+  .placeholder {
+    text-align: center;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    line-height: 2;
+    text-transform: uppercase;
+  }
+
+  .placeholder .big { font-size: 28px; display: block; margin-bottom: 12px; opacity: 0.3; }
+
+  .status {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 8px 0;
+    min-height: 28px;
+  }
+
+  .status.ok { color: var(--accent); }
+  .status.err { color: #f06060; }
+  .status.info { color: var(--accent2); }
+
+  .events-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 6px;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+
+  .event-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    padding: 5px 8px;
+    line-height: 1.6;
+    letter-spacing: 0.05em;
+  }
+
+  .event-chip .pitch { color: var(--accent); }
+  .event-chip .dur { color: var(--accent2); }
+
+  details {
+    border: 1px solid var(--border);
+  }
+
+  summary {
+    padding: 10px 14px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  summary:hover { color: var(--text); }
+
+  .details-body {
+    padding: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .spinner {
+    width: 20px; height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  footer {
+    margin-top: auto;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Strudel → Score</h1>
+  <span class="subtitle">mini-notation · verovio · MEI</span>
+</header>
+
+<div class="input-row">
+  <input class="pattern-input" id="patInput" type="text"
+    value="c4 [e4 g4] a4 b4" placeholder="Enter Strudel mini-notation…" />
+  <button class="convert-btn" id="convertBtn">Convert</button>
+</div>
+
+<div class="presets">
+  <span class="presets-label">Presets</span>
+  <button class="preset-btn" data-p="c4 [e4 g4] a4 b4">basic chord tones</button>
+  <button class="preset-btn" data-p="c4 d4 e4 f4 g4 a4 b4 c5">scale</button>
+  <button class="preset-btn" data-p="[c4 e4 g4] [f4 a4 c5] [g4 b4 d5] c5">I–IV–V–I</button>
+  <button class="preset-btn" data-p="c4@3 r e4 [g4 f4] e4@2">elongation @</button>
+  <button class="preset-btn" data-p="c4*3 e4 g4">speed *</button>
+  <button class="preset-btn" data-p="c4!3 e4">replicate !</button>
+  <button class="preset-btn" data-p="c4 ~ e4 ~ g4 ~ b4 ~">held notes</button>
+  <button class="preset-btn" data-p="[c4 d4 e4 f4] [g4 a4 b4 c5]">subdivisions</button>
+</div>
+
+<div class="options-row">
+  <div class="option">
+    <label for="cyclesOpt">Cycles</label>
+    <select id="cyclesOpt">
+      <option value="1">1</option>
+      <option value="2" selected>2</option>
+      <option value="4">4</option>
+    </select>
+  </div>
+  <div class="option">
+    <label for="meterOpt">Meter</label>
+    <select id="meterOpt">
+      <option value="4/4" selected>4/4</option>
+      <option value="3/4">3/4</option>
+      <option value="6/8">6/8</option>
+    </select>
+  </div>
+  <div class="option">
+    <label for="clefOpt">Clef</label>
+    <select id="clefOpt">
+      <option value="treble" selected>Treble</option>
+      <option value="bass">Bass</option>
+    </select>
+  </div>
+</div>
+
+<div class="status info" id="status">Initialising Verovio…</div>
+
+<div class="score-area" id="scoreArea">
+  <div class="placeholder">
+    <span class="big">𝄞</span>
+    Enter a pattern above and press Convert
+  </div>
+</div>
+
+<details id="eventDetails" style="display:none">
+  <summary>Parsed events</summary>
+  <div class="details-body">
+    <div class="events-grid" id="eventsGrid"></div>
+  </div>
+</details>
+
+<details id="meiDetails" style="display:none">
+  <summary>MEI source</summary>
+  <div class="details-body">
+    <pre id="meiPre" style="font-size:10px;color:var(--muted);white-space:pre-wrap;overflow:auto;max-height:200px"></pre>
+  </div>
+</details>
+
+<footer>
+  Strudel mini-notation parser · Verovio WASM 4.2 · No server required
+</footer>
+
+<script>
+// ─── 1. Strudel mini-notation parser ─────────────────────────────────────────
+// Handles: sequences, sub-cycles [], elongation @N, speed *N, replicate !N, rests r/~
+
+class Fraction {
+  constructor(n, d = 1) { this.n = n; this.d = d; this.reduce(); }
+  reduce() {
+    const g = gcd(Math.abs(this.n), this.d);
+    this.n /= g; this.d /= g;
+    return this;
+  }
+  add(f) { return new Fraction(this.n * f.d + f.n * this.d, this.d * f.d); }
+  mul(f) { return new Fraction(this.n * f.n, this.d * f.d); }
+  toFloat() { return this.n / this.d; }
+  toString() { return `${this.n}/${this.d}`; }
+}
+
+function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
+
+// Tokenise: splits on spaces and brackets; * ! @ may be attached to tokens
+function tokenise(src) {
+  return src.trim()
+    .replace(/\[/g, ' [ ')
+    .replace(/\]/g, ' ] ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+// Parse modifier suffix from a raw token: c4*3, c4!2, c4@3, [..]@2 etc.
+// Returns { base, op, n } where op is '*', '!', '@', or null
+function parseMod(tok) {
+  const m = tok.match(/^(.*?)([*!@])(\d+(?:\.\d+)?)$/);
+  if (!m) return { base: tok, op: null, n: 1 };
+  return { base: m[1], op: m[2], n: parseFloat(m[3]) };
+}
+
+function parseTokens(tokens, pos, offset, length) {
+  const elements = [];
+  while (pos < tokens.length) {
+    const tok = tokens[pos];
+    if (tok === ']') { pos++; break; }
+
+    if (tok === '[') {
+      pos++;
+      const sub = parseTokens(tokens, pos, new Fraction(0), new Fraction(1));
+      pos = sub.pos;
+      // modifier may follow as separate token or be attached — check separate token
+      let op = null, n = 1;
+      if (pos < tokens.length) {
+        const m = tokens[pos].match(/^([*!@])(\d+(?:\.\d+)?)$/);
+        if (m) { op = m[1]; n = parseFloat(m[2]); pos++; }
+      }
+      const weight = op === '@' ? n : 1;
+      const repeat = op === '*' ? n : op === '!' ? n : 1;
+      const speed  = op === '*' ? n : 1;
+      if (op === '!' || op === null) {
+        // replicate group N times (! means repeat inline)
+        for (let i = 0; i < Math.round(repeat); i++)
+          elements.push({ type: 'group', children: sub.elements, weight });
+      } else if (op === '*') {
+        // speed: subdivide group into n repetitions within same slot
+        const repeated = [];
+        for (let i = 0; i < Math.round(speed); i++)
+          repeated.push(...sub.elements);
+        elements.push({ type: 'group', children: repeated, weight: 1 });
+      } else {
+        elements.push({ type: 'group', children: sub.elements, weight });
+      }
+    } else {
+      const { base, op, n } = parseMod(tok);
+      pos++;
+      if (op === '@') {
+        elements.push({ type: 'leaf', value: base, weight: n });
+      } else if (op === '!') {
+        // replicate: insert n copies, each with weight 1
+        for (let i = 0; i < Math.round(n); i++)
+          elements.push({ type: 'leaf', value: base, weight: 1 });
+      } else if (op === '*') {
+        // speed up: n equal copies packed into one slot (weight 1 total)
+        // model as a group of n children
+        const children = [];
+        for (let i = 0; i < Math.round(n); i++)
+          children.push({ type: 'leaf', value: base, weight: 1 });
+        elements.push({ type: 'group', children, weight: 1 });
+      } else {
+        elements.push({ type: 'leaf', value: base, weight: 1 });
+      }
+    }
+  }
+  return { elements, pos };
+}
+
+function elementsToEvents(elements, offset, length) {
+  const totalWeight = elements.reduce((s, e) => s + e.weight, 0);
+  let cursor = offset;
+  const events = [];
+  for (const el of elements) {
+    const elLen = length.mul(new Fraction(el.weight, totalWeight));
+    if (el.type === 'leaf') {
+      events.push({ value: el.value, begin: cursor, end: cursor.add(elLen) });
+    } else {
+      events.push(...elementsToEvents(el.children, cursor, elLen));
+    }
+    cursor = cursor.add(elLen);
+  }
+  return events;
+}
+
+function evalPattern(src, numCycles = 1) {
+  const tokens = tokenise(src);
+  const { elements } = parseTokens(tokens, 0, new Fraction(0), new Fraction(1));
+  const allEvents = [];
+  for (let c = 0; c < numCycles; c++) {
+    const cycleOffset = new Fraction(c);
+    const raw = elementsToEvents(elements, new Fraction(0), new Fraction(1));
+    for (const e of raw) {
+      allEvents.push({
+        value: e.value,
+        begin: e.begin.add(cycleOffset),
+        end: e.end.add(cycleOffset)
+      });
+    }
+  }
+  return allEvents;
+}
+
+// ─── 2. Event → MEI duration mapping ─────────────────────────────────────────
+// Given a duration as a Fraction (in cycles), map to closest MEI dur + dots
+
+const DUR_TABLE = [
+  // [fraction, dur, dots]
+  [new Fraction(1, 1),   'whole',   0],
+  [new Fraction(3, 4),   'half',    1],
+  [new Fraction(1, 2),   'half',    0],
+  [new Fraction(3, 8),   'quarter', 1],
+  [new Fraction(1, 4),   'quarter', 0],
+  [new Fraction(3, 16),  '8',       1],
+  [new Fraction(1, 8),   '8',       0],
+  [new Fraction(3, 32),  '16',      1],
+  [new Fraction(1, 16),  '16',      0],
+  [new Fraction(1, 32),  '32',      0],
+];
+
+// Map a duration fraction (relative to a 4/4 measure = 1 whole note) to MEI
+function durationToMEI(frac, beatsPerCycle = 4) {
+  // In 4/4, 1 cycle = 4 beats, 1 whole = 1 cycle
+  const normalized = frac; // already relative to one cycle = one whole note
+  let best = DUR_TABLE[0];
+  let bestDiff = Infinity;
+  for (const entry of DUR_TABLE) {
+    const diff = Math.abs(entry[0].toFloat() - normalized.toFloat());
+    if (diff < bestDiff) { bestDiff = diff; best = entry; }
+  }
+  return { dur: best[1], dots: best[2] };
+}
+
+// Parse a Strudel note name → MEI pname + oct
+// Strudel: c4, d#5, eb3, r (rest), ~ (hold/tie)
+function parseNote(val) {
+  if (val === 'r' || val === '~') return { rest: true, tie: val === '~' };
+  // Match e.g. "c#4", "eb5", "a4", "C4"
+  const m = val.toLowerCase().match(/^([a-g])([#b]?)(\d+)$/);
+  if (!m) return null;
+  const pname = m[1];
+  const acc = m[2] === '#' ? 's' : m[2] === 'b' ? 'f' : '';
+  const oct = parseInt(m[3]);
+  return { pname, acc, oct, rest: false };
+}
+
+// ─── 3. Events → MEI XML ──────────────────────────────────────────────────────
+function eventsToMEI(events, { meter = '4/4', clef = 'treble', beatsPerCycle = 4 } = {}) {
+  const [beatCount, beatUnit] = meter.split('/').map(Number);
+  const cycleLength = beatCount / beatUnit; // in whole notes
+
+  // Group events into measures
+  const measureDur = cycleLength; // one cycle per measure here for simplicity
+  // Actually: let's group by beatCount quarter notes per measure
+  // We treat 1 cycle = beatCount beats = 1 measure in 4/4
+
+  // Sort events
+  events = [...events].sort((a, b) => a.begin.toFloat() - b.begin.toFloat());
+
+  // Assign to measures (1 cycle = 1 measure)
+  const measuresMap = new Map();
+  for (const ev of events) {
+    const measureIdx = Math.floor(ev.begin.toFloat());
+    if (!measuresMap.has(measureIdx)) measuresMap.set(measureIdx, []);
+    measuresMap.get(measureIdx).push({
+      ...ev,
+      localBegin: new Fraction(
+        ev.begin.n - measureIdx * ev.begin.d,
+        ev.begin.d
+      ),
+      dur: new Fraction(ev.end.n - ev.begin.n, ev.end.d > 0 ? ev.end.d : 1)
+        // simpler:
+        // dur = end - begin
+    });
+  }
+
+  // Recompute dur properly
+  const measures = [];
+  for (const [mIdx, evs] of [...measuresMap.entries()].sort((a, b) => a[0] - b[0])) {
+    const mEvs = evs.map(ev => {
+      const dur = new Fraction(ev.end.n * ev.begin.d - ev.begin.n * ev.end.d,
+                               ev.begin.d * ev.end.d);
+      return { ...ev, dur };
+    });
+    measures.push({ index: mIdx, events: mEvs });
+  }
+
+  const clefShape = clef === 'treble' ? 'G' : 'F';
+  const clefLine  = clef === 'treble' ? '2' : '4';
+
+  const noteEls = [];
+  let noteId = 1;
+
+  for (const meas of measures) {
+    const layerNotes = [];
+    for (const ev of meas.events) {
+      const noteInfo = parseNote(ev.value);
+      if (!noteInfo) continue;
+
+      const { dur, dots } = durationToMEI(ev.dur);
+      const id = `n${noteId++}`;
+
+      if (noteInfo.rest) {
+        layerNotes.push(`<rest xml:id="${id}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}/>`);
+      } else {
+        const accAttr = noteInfo.acc ? ` accid="${noteInfo.acc}"` : '';
+        layerNotes.push(
+          `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}${accAttr}/>`
+        );
+      }
+    }
+
+    // Fill rest of measure if needed
+    noteEls.push(`
+      <measure n="${meas.index + 1}" right="${meas.index === measures.length - 1 ? 'end' : 'single'}">
+        <staff n="1">
+          <layer n="1">
+            ${layerNotes.join('\n            ')}
+          </layer>
+        </staff>
+      </measure>`);
+  }
+
+  const mei = `<?xml version="1.0" encoding="UTF-8"?>
+<mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="4.0">
+  <meiHead><fileDesc><titleStmt><title/></titleStmt><pubStmt/></fileDesc></meiHead>
+  <music>
+    <body>
+      <mdiv>
+        <score>
+          <scoreDef meter.count="${beatCount}" meter.unit="${beatUnit}" key.sig="0">
+            <staffGrp>
+              <staffDef n="1" lines="5" clef.shape="${clefShape}" clef.line="${clefLine}"/>
+            </staffGrp>
+          </scoreDef>
+          <section>
+          ${noteEls.join('')}
+          </section>
+        </score>
+      </mdiv>
+    </body>
+  </music>
+</mei>`;
+
+  return mei;
+}
+
+// ─── 4. UI & Verovio rendering ───────────────────────────────────────────────
+let vrvToolkit = null;
+
+async function initVerovio() {
+  const statusEl = document.getElementById('status');
+  try {
+    await new Promise(resolve => { Module.onRuntimeInitialized = resolve; });
+    vrvToolkit = new verovio.toolkit();
+    statusEl.textContent = 'Verovio ready — enter a pattern and press Convert';
+    statusEl.className = 'status ok';
+    document.getElementById('convertBtn').disabled = false;
+  } catch (e) {
+    statusEl.textContent = 'Verovio failed to load: ' + e.message;
+    statusEl.className = 'status err';
+    console.error(e);
+  }
+}
+
+function renderPattern() {
+  const patInput = document.getElementById('patInput').value.trim();
+  const cycles   = parseInt(document.getElementById('cyclesOpt').value);
+  const meter    = document.getElementById('meterOpt').value;
+  const clef     = document.getElementById('clefOpt').value;
+  const statusEl = document.getElementById('status');
+
+  if (!vrvToolkit) {
+    statusEl.textContent = 'Verovio not yet loaded…'; statusEl.className = 'status info'; return;
+  }
+  if (!patInput) {
+    statusEl.textContent = 'Please enter a pattern'; statusEl.className = 'status err'; return;
+  }
+
+  try {
+    // Parse
+    const events = evalPattern(patInput, cycles);
+
+    // Render events grid
+    const grid = document.getElementById('eventsGrid');
+    grid.innerHTML = '';
+    events.forEach(ev => {
+      const chip = document.createElement('div');
+      chip.className = 'event-chip';
+      const dur = new Fraction(ev.end.n * ev.begin.d - ev.begin.n * ev.end.d,
+                               ev.begin.d * ev.end.d);
+      chip.innerHTML = `<span class="pitch">${ev.value}</span><br>` +
+        `<span class="dur">${ev.begin.toString()} → ${ev.end.toString()}</span>`;
+      grid.appendChild(chip);
+    });
+    document.getElementById('eventDetails').style.display = '';
+    document.getElementById('meiDetails').style.display = '';
+
+    // Convert to MEI
+    const mei = eventsToMEI(events, { meter, clef });
+    document.getElementById('meiPre').textContent = mei;
+
+    // Render with Verovio — pass options directly into renderData
+    const svg = vrvToolkit.renderData(mei, {
+      pageWidth: 2400,
+      pageHeight: 800,
+      pageMarginTop: 80,
+      pageMarginBottom: 80,
+      pageMarginLeft: 80,
+      pageMarginRight: 80,
+      scale: 40,
+      adjustPageWidth: 1,
+      adjustPageHeight: 1,
+    });
+    const scoreArea = document.getElementById('scoreArea');
+    scoreArea.innerHTML = svg;
+
+    // Invert SVG colours for dark background
+    const svgEl = scoreArea.querySelector('svg');
+    if (svgEl) {
+      svgEl.style.filter = 'invert(1)';
+      svgEl.style.maxWidth = '100%';
+      svgEl.style.height = 'auto';
+    }
+
+    statusEl.textContent = `✓ ${events.length} events · ${Math.ceil(events.length / 1)} notes rendered`;
+    statusEl.className = 'status ok';
+
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+    statusEl.className = 'status err';
+    console.error(e);
+  }
+}
+
+// Wire up UI
+document.getElementById('convertBtn').disabled = true;
+document.getElementById('convertBtn').addEventListener('click', renderPattern);
+document.getElementById('patInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') renderPattern();
+});
+
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('patInput').value = btn.dataset.p;
+    renderPattern();
+  });
+});
+
+// Boot
+initVerovio();
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js"></script>
+</head>
+<body>
+  <div id="output"></div>
+  <script>
+    Module.onRuntimeInitialized = async () => {
+      const vrvToolkit = new verovio.toolkit();
+
+      const mei = `<?xml version="1.0"?>
+<mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="4.0">
+  <meiHead/>
+  <music><body><mdiv><score>
+    <scoreDef meter.count="4" meter.unit="4" key.sig="0">
+      <staffGrp><staffDef n="1" clef.shape="G" clef.line="2" lines="5"/></staffGrp>
+    </scoreDef>
+    <section><measure n="1">
+      <staff n="1"><layer n="1">
+        <note pname="c" oct="4" dur="4"/>
+        <note pname="e" oct="4" dur="4"/>
+        <note pname="g" oct="4" dur="4"/>
+        <note pname="c" oct="5" dur="4"/>
+      </layer></staff>
+    </measure></section>
+  </score></mdiv></body></music>
+</mei>`;
+
+      const svg = vrvToolkit.renderData(mei, {});
+      document.getElementById("output").innerHTML = svg;
+    };
+  </script>
+</body>
+</html>
