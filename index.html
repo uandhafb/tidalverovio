@@ -6,13 +6,13 @@
 <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js"></script>
 <style>
   :root {
-    --bg: #0e0e0e;
-    --surface: #161616;
-    --border: #2a2a2a;
-    --accent: #c8f060;
-    --accent2: #60c8f0;
-    --text: #e8e8e0;
-    --muted: #666;
+    --bg: #ffffff;
+    --surface: #f5f5f5;
+    --border: #d0d0d0;
+    --accent: #1a1a1a;
+    --accent2: #555555;
+    --text: #1a1a1a;
+    --muted: #888;
     --font-mono: 'Courier New', monospace;
   }
 
@@ -76,7 +76,7 @@
 
   .convert-btn {
     background: var(--accent);
-    color: #0e0e0e;
+    color: #ffffff;
     border: none;
     font-family: var(--font-mono);
     font-size: 11px;
@@ -88,7 +88,7 @@
     transition: background 0.15s, transform 0.05s;
   }
 
-  .convert-btn:hover { background: #d8ff70; }
+  .convert-btn:hover { background: #333; }
   .convert-btn:active { transform: scale(0.97); }
   .convert-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
 
@@ -194,9 +194,9 @@
     min-height: 28px;
   }
 
-  .status.ok { color: var(--accent); }
-  .status.err { color: #f06060; }
-  .status.info { color: var(--accent2); }
+  .status.ok { color: #2a7a2a; }
+  .status.err { color: #c00; }
+  .status.info { color: #555; }
 
   .events-grid {
     display: grid;
@@ -267,12 +267,13 @@
 
 <div class="input-row">
   <input class="pattern-input" id="patInput" type="text"
-    value="c4 [e4 g4] a4 b4" placeholder="Enter Strudel mini-notation…" />
+    value="[c4*5 c3!4]" placeholder="Enter Strudel mini-notation…" />
   <button class="convert-btn" id="convertBtn">Convert</button>
 </div>
 
 <div class="presets">
   <span class="presets-label">Presets</span>
+  <button class="preset-btn" data-p="[c4*5 c3!4]">mini notation wonders!</button>
   <button class="preset-btn" data-p="c4 [e4 g4] a4 b4">basic chord tones</button>
   <button class="preset-btn" data-p="c4 d4 e4 f4 g4 a4 b4 c5">scale</button>
   <button class="preset-btn" data-p="[c4 e4 g4] [f4 a4 c5] [g4 b4 d5] c5">I–IV–V–I</button>
@@ -676,10 +677,10 @@ function renderPattern() {
     const scoreArea = document.getElementById('scoreArea');
     scoreArea.innerHTML = svg;
 
-    // Invert SVG colours for dark background
+    // No invert needed on white background
     const svgEl = scoreArea.querySelector('svg');
     if (svgEl) {
-      svgEl.style.filter = 'invert(1)';
+      svgEl.style.filter = '';
       svgEl.style.maxWidth = '100%';
       svgEl.style.height = 'auto';
     }
