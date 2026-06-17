@@ -123,6 +123,73 @@
     color: var(--accent2);
   }
 
+  .live-panel {
+    border: 1px solid var(--border);
+    padding: 16px;
+  }
+
+  .live-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .live-panel-title {
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .live-panel-hint {
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .live-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .live-line-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .live-line-checkbox {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .live-line-label {
+    width: 28px;
+    font-size: 12px;
+    color: var(--accent2);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .live-line-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 8px 12px;
+    outline: none;
+  }
+
+  .live-line-input:focus { border-color: var(--accent); }
+
   .options-row {
     display: flex;
     gap: 24px;
@@ -273,15 +340,49 @@
 
 <div class="presets">
   <span class="presets-label">Presets</span>
-  <button class="preset-btn" data-p="[c4*5 c3!4]">mini notation wonders!</button>
-  <button class="preset-btn" data-p="c4 [e4 g4] a4 b4">basic chord tones</button>
-  <button class="preset-btn" data-p="c4 d4 e4 f4 g4 a4 b4 c5">scale</button>
-  <button class="preset-btn" data-p="[c4 e4 g4] [f4 a4 c5] [g4 b4 d5] c5">I–IV–V–I</button>
-  <button class="preset-btn" data-p="c4@3 r e4 [g4 f4] e4@2">elongation @</button>
-  <button class="preset-btn" data-p="c4*3 e4 g4">speed *</button>
-  <button class="preset-btn" data-p="c4!3 e4">replicate !</button>
-  <button class="preset-btn" data-p="c4 ~ e4 ~ g4 ~ b4 ~">held notes</button>
-  <button class="preset-btn" data-p="[c4 d4 e4 f4] [g4 a4 b4 c5]">subdivisions</button>
+  <button class="preset-btn" data-p="[c4*5 c3!4]" data-mode="pitch">mini notation wonders!</button>
+  <button class="preset-btn" data-p="c4 [e4 g4] a4 b4" data-mode="pitch">basic chord tones</button>
+  <button class="preset-btn" data-p="c4 d4 e4 f4 g4 a4 b4 c5" data-mode="pitch">scale</button>
+  <button class="preset-btn" data-p="[c4 e4 g4] [f4 a4 c5] [g4 b4 d5] c5" data-mode="pitch">I–IV–V–I</button>
+  <button class="preset-btn" data-p="c4@3 r e4 [g4 f4] e4@2" data-mode="pitch">elongation @</button>
+  <button class="preset-btn" data-p="c4*3 e4 g4" data-mode="pitch">speed *</button>
+  <button class="preset-btn" data-p="c4!3 e4" data-mode="pitch">replicate !</button>
+  <button class="preset-btn" data-p="c4 ~ e4 ~ g4 ~ b4 ~" data-mode="pitch">held notes</button>
+  <button class="preset-btn" data-p="[c4 d4 e4 f4] [g4 a4 b4 c5]" data-mode="pitch">subdivisions</button>
+  <button class="preset-btn" data-p="bd sn hh hh" data-mode="rhythm">rhythm: basic beat</button>
+  <button class="preset-btn" data-p="bd sn [hh hh hh] sn" data-mode="rhythm">rhythm: triplet hat</button>
+  <button class="preset-btn" data-p="bd ! sn ~" data-mode="rhythm">bare ! repeat</button>
+  <button class="preset-btn" data-p="<bd sn hh>" data-mode="rhythm" data-cycles="4">&lt;&gt; cycle alternation</button>
+  <button class="preset-btn" data-p="c4*4, e5*8" data-mode="pitch">, parallel layers</button>
+</div>
+
+<div class="live-panel">
+  <div class="live-panel-header">
+    <span class="live-panel-title">Live Lines</span>
+    <span class="live-panel-hint">flag a line to send it to the score — updates as you type</span>
+  </div>
+  <div class="live-lines" id="liveLines">
+    <div class="live-line-row">
+      <input type="checkbox" class="live-line-checkbox" id="flag-d1">
+      <label class="live-line-label" for="flag-d1">d1</label>
+      <input type="text" class="live-line-input" value="bd sn hh hh" placeholder="Enter mini-notation…">
+    </div>
+    <div class="live-line-row">
+      <input type="checkbox" class="live-line-checkbox" id="flag-d2">
+      <label class="live-line-label" for="flag-d2">d2</label>
+      <input type="text" class="live-line-input" value="c4 e4 g4" placeholder="Enter mini-notation…">
+    </div>
+    <div class="live-line-row">
+      <input type="checkbox" class="live-line-checkbox" id="flag-d3">
+      <label class="live-line-label" for="flag-d3">d3</label>
+      <input type="text" class="live-line-input" placeholder="Enter mini-notation…">
+    </div>
+    <div class="live-line-row">
+      <input type="checkbox" class="live-line-checkbox" id="flag-d4">
+      <label class="live-line-label" for="flag-d4">d4</label>
+      <input type="text" class="live-line-input" placeholder="Enter mini-notation…">
+    </div>
+  </div>
 </div>
 
 <div class="options-row">
@@ -294,11 +395,10 @@
     </select>
   </div>
   <div class="option">
-    <label for="meterOpt">Meter</label>
-    <select id="meterOpt">
-      <option value="4/4" selected>4/4</option>
-      <option value="3/4">3/4</option>
-      <option value="6/8">6/8</option>
+    <label for="modeOpt">Mode</label>
+    <select id="modeOpt">
+      <option value="pitch" selected>Pitch</option>
+      <option value="rhythm">Rhythm</option>
     </select>
   </div>
   <div class="option">
@@ -356,11 +456,33 @@ class Fraction {
 
 function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
 
-// Tokenise: splits on spaces and brackets; * ! @ may be attached to tokens
+// Tuplet helpers: a group of N equal-weight children is "clean" binary
+// notation only when N is a power of two (1, 2, 4, 8...). Any other N
+// needs a tuplet bracket against the nearest lower power of two.
+function isPow2(n) { return n > 0 && (n & (n - 1)) === 0; }
+function lowerPow2(n) { let p = 1; while (p * 2 <= n) p *= 2; return p; }
+
+// <a b c> picks one alternative per cycle (cycle 0 -> a, 1 -> b, 2 -> c,
+// 3 -> a again...). Resolve repeatedly in case an alternative is itself
+// an alt (not produced by the current parser, but safe either way).
+function resolveAlt(el, cycleIndex) {
+  while (el.type === 'alt') {
+    const len = el.alternatives.length;
+    const idx = ((cycleIndex % len) + len) % len;
+    el = el.alternatives[idx];
+  }
+  return el;
+}
+
+// Tokenise: splits on spaces, brackets, angle brackets and commas;
+// * ! @ may be attached to a token or stand alone after a bracket/group.
 function tokenise(src) {
   return src.trim()
     .replace(/\[/g, ' [ ')
     .replace(/\]/g, ' ] ')
+    .replace(/</g, ' < ')
+    .replace(/>/g, ' > ')
+    .replace(/,/g, ' , ')
     .split(/\s+/)
     .filter(Boolean);
 }
@@ -373,72 +495,116 @@ function parseMod(tok) {
   return { base: m[1], op: m[2], n: parseFloat(m[3]) };
 }
 
-function parseTokens(tokens, pos, offset, length) {
-  const elements = [];
+// Parses a sequence up to `closeTok` (or end of input at the top level).
+// Returns `{ layers, pos }`: normally `layers` has one entry (the
+// sequence itself), but a "," found at this nesting level splits the
+// whole scope into N parallel layers (e.g. "bd*4, hh*8" — two voices
+// playing simultaneously for the full pattern), one per comma-separated
+// part.
+function parseTokens(tokens, pos, closeTok = null) {
+  const layers = [[]];
+  const current = () => layers[layers.length - 1];
+
   while (pos < tokens.length) {
     const tok = tokens[pos];
-    if (tok === ']') { pos++; break; }
+    if (tok === closeTok) { pos++; break; }
+
+    if (tok === ',') {
+      pos++;
+      layers.push([]);
+      continue;
+    }
 
     if (tok === '[') {
       pos++;
-      const sub = parseTokens(tokens, pos, new Fraction(0), new Fraction(1));
+      const sub = parseTokens(tokens, pos, ']');
       pos = sub.pos;
-      // modifier may follow as separate token or be attached — check separate token
+      let op = null, n = 1;
+      if (pos < tokens.length) {
+        const m = tokens[pos].match(/^([*!@])(\d+(?:\.\d+)?)$/);
+        if (m) { op = m[1]; n = parseFloat(m[2]); pos++; }
+      }
+      // Parallel layers (",") are only rendered as true simultaneous
+      // voices at a pattern's top level (see patternsToMEI). Nested
+      // inside a bracket, they're flattened back into one sequence so
+      // no events are silently dropped — a known scope limit, not a bug.
+      const subElements = sub.layers.length > 1 ? [].concat(...sub.layers) : sub.layers[0];
+      const weight = op === '@' ? n : 1;
+      const repeat = op === '!' ? n : 1;
+      const speed  = op === '*' ? n : 1;
+      if (op === '!' || op === null) {
+        for (let i = 0; i < Math.round(repeat); i++)
+          current().push({ type: 'group', children: subElements, weight });
+      } else if (op === '*') {
+        const repeated = [];
+        for (let i = 0; i < Math.round(speed); i++)
+          repeated.push(...subElements);
+        current().push({ type: 'group', children: repeated, weight: 1 });
+      } else {
+        current().push({ type: 'group', children: subElements, weight });
+      }
+      continue;
+    }
+
+    if (tok === '<') {
+      pos++;
+      const sub = parseTokens(tokens, pos, '>');
+      pos = sub.pos;
       let op = null, n = 1;
       if (pos < tokens.length) {
         const m = tokens[pos].match(/^([*!@])(\d+(?:\.\d+)?)$/);
         if (m) { op = m[1]; n = parseFloat(m[2]); pos++; }
       }
       const weight = op === '@' ? n : 1;
-      const repeat = op === '*' ? n : op === '!' ? n : 1;
-      const speed  = op === '*' ? n : 1;
-      if (op === '!' || op === null) {
-        // replicate group N times (! means repeat inline)
-        for (let i = 0; i < Math.round(repeat); i++)
-          elements.push({ type: 'group', children: sub.elements, weight });
-      } else if (op === '*') {
-        // speed: subdivide group into n repetitions within same slot
-        const repeated = [];
-        for (let i = 0; i < Math.round(speed); i++)
-          repeated.push(...sub.elements);
-        elements.push({ type: 'group', children: repeated, weight: 1 });
-      } else {
-        elements.push({ type: 'group', children: sub.elements, weight });
-      }
-    } else {
-      const { base, op, n } = parseMod(tok);
+      current().push({ type: 'alt', alternatives: sub.layers[0], weight });
+      continue;
+    }
+
+    if (tok === '!') {
+      // Bare "!" repeats the previous element in this sequence:
+      // "bd ! sn" == "bd bd sn". No-op if nothing precedes it.
       pos++;
-      if (op === '@') {
-        elements.push({ type: 'leaf', value: base, weight: n });
-      } else if (op === '!') {
-        // replicate: insert n copies, each with weight 1
-        for (let i = 0; i < Math.round(n); i++)
-          elements.push({ type: 'leaf', value: base, weight: 1 });
-      } else if (op === '*') {
-        // speed up: n equal copies packed into one slot (weight 1 total)
-        // model as a group of n children
-        const children = [];
-        for (let i = 0; i < Math.round(n); i++)
-          children.push({ type: 'leaf', value: base, weight: 1 });
-        elements.push({ type: 'group', children, weight: 1 });
-      } else {
-        elements.push({ type: 'leaf', value: base, weight: 1 });
-      }
+      const cur = current();
+      if (cur.length) cur.push(cur[cur.length - 1]);
+      continue;
+    }
+
+    const { base, op, n } = parseMod(tok);
+    pos++;
+    if (op === '@') {
+      current().push({ type: 'leaf', value: base, weight: n });
+    } else if (op === '!') {
+      // replicate: insert n copies, each with weight 1
+      for (let i = 0; i < Math.round(n); i++)
+        current().push({ type: 'leaf', value: base, weight: 1 });
+    } else if (op === '*') {
+      // speed up: n equal copies packed into one slot (weight 1 total)
+      // model as a group of n children
+      const children = [];
+      for (let i = 0; i < Math.round(n); i++)
+        children.push({ type: 'leaf', value: base, weight: 1 });
+      current().push({ type: 'group', children, weight: 1 });
+    } else {
+      current().push({ type: 'leaf', value: base, weight: 1 });
     }
   }
-  return { elements, pos };
+  return { layers, pos };
 }
 
-function elementsToEvents(elements, offset, length) {
+// Flattening for the debug "parsed events" panel only — pure (start,end)
+// timing per leaf, no notation concerns. MEI generation (below) walks the
+// same tree separately so nested tuplets can nest correctly.
+function elementsToEvents(elements, offset, length, cycleIndex = 0) {
   const totalWeight = elements.reduce((s, e) => s + e.weight, 0);
   let cursor = offset;
   const events = [];
   for (const el of elements) {
     const elLen = length.mul(new Fraction(el.weight, totalWeight));
-    if (el.type === 'leaf') {
-      events.push({ value: el.value, begin: cursor, end: cursor.add(elLen) });
+    const resolved = resolveAlt(el, cycleIndex);
+    if (resolved.type === 'leaf') {
+      events.push({ value: resolved.value, begin: cursor, end: cursor.add(elLen) });
     } else {
-      events.push(...elementsToEvents(el.children, cursor, elLen));
+      events.push(...elementsToEvents(resolved.children, cursor, elLen, cycleIndex));
     }
     cursor = cursor.add(elLen);
   }
@@ -447,17 +613,19 @@ function elementsToEvents(elements, offset, length) {
 
 function evalPattern(src, numCycles = 1) {
   const tokens = tokenise(src);
-  const { elements } = parseTokens(tokens, 0, new Fraction(0), new Fraction(1));
+  const { layers } = parseTokens(tokens, 0);
   const allEvents = [];
   for (let c = 0; c < numCycles; c++) {
     const cycleOffset = new Fraction(c);
-    const raw = elementsToEvents(elements, new Fraction(0), new Fraction(1));
-    for (const e of raw) {
-      allEvents.push({
-        value: e.value,
-        begin: e.begin.add(cycleOffset),
-        end: e.end.add(cycleOffset)
-      });
+    for (const layer of layers) {
+      const raw = elementsToEvents(layer, new Fraction(0), new Fraction(1), c);
+      for (const e of raw) {
+        allEvents.push({
+          value: e.value,
+          begin: e.begin.add(cycleOffset),
+          end: e.end.add(cycleOffset)
+        });
+      }
     }
   }
   return allEvents;
@@ -466,18 +634,22 @@ function evalPattern(src, numCycles = 1) {
 // ─── 2. Event → MEI duration mapping ─────────────────────────────────────────
 // Given a duration as a Fraction (in cycles), map to closest MEI dur + dots
 
+// MEI duration codes are numeric (1=whole, 2=half, 4=quarter, 8, 16, 32),
+// not word forms — Verovio tolerates word forms like "whole"/"quarter" on
+// <note> (silently falling back) but divides by zero laying out a <rest>
+// with one, so this must stay numeric for both to render safely.
 const DUR_TABLE = [
   // [fraction, dur, dots]
-  [new Fraction(1, 1),   'whole',   0],
-  [new Fraction(3, 4),   'half',    1],
-  [new Fraction(1, 2),   'half',    0],
-  [new Fraction(3, 8),   'quarter', 1],
-  [new Fraction(1, 4),   'quarter', 0],
-  [new Fraction(3, 16),  '8',       1],
-  [new Fraction(1, 8),   '8',       0],
-  [new Fraction(3, 32),  '16',      1],
-  [new Fraction(1, 16),  '16',      0],
-  [new Fraction(1, 32),  '32',      0],
+  [new Fraction(1, 1),   '1',  0],
+  [new Fraction(3, 4),   '2',  1],
+  [new Fraction(1, 2),   '2',  0],
+  [new Fraction(3, 8),   '4',  1],
+  [new Fraction(1, 4),   '4',  0],
+  [new Fraction(3, 16),  '8',  1],
+  [new Fraction(1, 8),   '8',  0],
+  [new Fraction(3, 32),  '16', 1],
+  [new Fraction(1, 16),  '16', 0],
+  [new Fraction(1, 32),  '32', 0],
 ];
 
 // Map a duration fraction (relative to a 4/4 measure = 1 whole note) to MEI
@@ -506,82 +678,126 @@ function parseNote(val) {
   return { pname, acc, oct, rest: false };
 }
 
-// ─── 3. Events → MEI XML ──────────────────────────────────────────────────────
-function eventsToMEI(events, { meter = '4/4', clef = 'treble', beatsPerCycle = 4 } = {}) {
-  const [beatCount, beatUnit] = meter.split('/').map(Number);
-  const cycleLength = beatCount / beatUnit; // in whole notes
+// In rhythm-only mode, every non-rest token (sample names like "bd", "sn"
+// carry no pitch) gets drawn on a single fixed pitch — the staff's own
+// middle line — so the notation reads purely as rhythm.
+function clefMiddlePitch(clef) {
+  return clef === 'treble' ? { pname: 'b', oct: 4 } : { pname: 'd', oct: 3 };
+}
 
-  // Group events into measures
-  const measureDur = cycleLength; // one cycle per measure here for simplicity
-  // Actually: let's group by beatCount quarter notes per measure
-  // We treat 1 cycle = beatCount beats = 1 measure in 4/4
+// ─── 3. Pattern tree → MEI XML ───────────────────────────────────────────────
+// No time signature: each cycle is its own free measure, sized by whatever
+// it actually contains.
+//
+// Tuplets are detected and emitted by walking the parse tree directly
+// (not a flattened event list), because tuplets can nest: a group's own
+// non-binary equal subdivision becomes a <tuplet>, and the *written*
+// duration of every leaf inside it is its real duration scaled by the
+// product of every enclosing tuplet's num/numbase — that's what turns an
+// otherwise unnotatable fraction (like 1/9 of a cycle) into something
+// readable ("triplet eighth nested inside a triplet beat").
 
-  // Sort events
-  events = [...events].sort((a, b) => a.begin.toFloat() - b.begin.toFloat());
+let noteIdSeq = 1;
 
-  // Assign to measures (1 cycle = 1 measure)
-  const measuresMap = new Map();
-  for (const ev of events) {
-    const measureIdx = Math.floor(ev.begin.toFloat());
-    if (!measuresMap.has(measureIdx)) measuresMap.set(measureIdx, []);
-    measuresMap.get(measureIdx).push({
-      ...ev,
-      localBegin: new Fraction(
-        ev.begin.n - measureIdx * ev.begin.d,
-        ev.begin.d
-      ),
-      dur: new Fraction(ev.end.n - ev.begin.n, ev.end.d > 0 ? ev.end.d : 1)
-        // simpler:
-        // dur = end - begin
-    });
+// `mode` is 'pitch' or 'rhythm'. In pitch mode a token that isn't a
+// recognized note name (e.g. a sample name like "bd") yields no event —
+// the caller tracks this via `stats` to offer a "switch to Rhythm mode"
+// fallback. In rhythm mode every non-rest token renders at `fixedPitch`.
+function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats) {
+  stats.total++;
+  let noteInfo;
+  if (mode === 'rhythm') {
+    const isRest = value === 'r' || value === '~';
+    noteInfo = isRest ? { rest: true } : { rest: false, pname: fixedPitch.pname, oct: fixedPitch.oct, acc: '' };
+  } else {
+    noteInfo = parseNote(value);
+    if (!noteInfo) return null;
   }
 
-  // Recompute dur properly
-  const measures = [];
-  for (const [mIdx, evs] of [...measuresMap.entries()].sort((a, b) => a[0] - b[0])) {
-    const mEvs = evs.map(ev => {
-      const dur = new Fraction(ev.end.n * ev.begin.d - ev.begin.n * ev.end.d,
-                               ev.begin.d * ev.end.d);
-      return { ...ev, dur };
-    });
-    measures.push({ index: mIdx, events: mEvs });
+  const id = `n${noteIdSeq++}`;
+  const { dur, dots } = durationToMEI(writtenDur);
+  stats.rendered++;
+
+  if (noteInfo.rest) {
+    return `<rest xml:id="${id}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}/>`;
   }
+  const accAttr = noteInfo.acc ? ` accid="${noteInfo.acc}"` : '';
+  return `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}${accAttr}/>`;
+}
+
+// Recursively turn a list of sibling elements (all occupying `length` of
+// the parent slot) into MEI item strings. `scale` is the cumulative
+// num/numbase product of every tuplet enclosing this call, applied to
+// leaf durations so nested tuplets compound correctly. `cycleIndex`
+// picks the right branch of any <a b c> alternation encountered.
+function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIndex) {
+  const totalWeight = elements.reduce((s, e) => s + e.weight, 0);
+  const n = elements.length;
+  const allEqualWeight = n > 0 && elements.every(e => e.weight === elements[0].weight);
+  const isTuplet = n > 1 && allEqualWeight && !isPow2(n);
+  const numbase = isTuplet ? lowerPow2(n) : n;
+  const childScale = isTuplet ? scale.mul(new Fraction(n, numbase)) : scale;
+
+  const items = [];
+  for (const el of elements) {
+    const elLen = length.mul(new Fraction(el.weight, totalWeight));
+    const resolved = resolveAlt(el, cycleIndex);
+    if (resolved.type === 'leaf') {
+      const xml = noteOrRestXML(resolved.value, elLen.mul(childScale), mode, fixedPitch, stats);
+      if (xml) items.push(xml);
+    } else {
+      items.push(...buildMEIItems(resolved.children, elLen, childScale, mode, fixedPitch, stats, cycleIndex));
+    }
+  }
+
+  if (isTuplet && items.length) {
+    return [`<tuplet num="${n}" numbase="${numbase}">\n${items.join('\n')}\n</tuplet>`];
+  }
+  return items;
+}
+
+// Multiple simultaneous patterns (e.g. flagged live-coder lines d1, d2...)
+// become one staff each, stacked in the same staffGrp/measures — they're
+// orbits playing together, so they belong in one score, not separate ones.
+// Within a single pattern, a top-level "," (e.g. "bd*4, hh*8") becomes
+// multiple simultaneous <layer> elements inside that one staff — true
+// independent-rhythm polyphony, not chords, which is correct since the
+// comma-separated parts usually don't share a common pulse.
+function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch' } = {}) {
+  noteIdSeq = 1;
+  const parsed = patterns.map(p => {
+    const tokens = tokenise(p.src);
+    const { layers } = parseTokens(tokens, 0);
+    return { label: p.label, layers };
+  });
 
   const clefShape = clef === 'treble' ? 'G' : 'F';
   const clefLine  = clef === 'treble' ? '2' : '4';
+  const fixedPitch = clefMiddlePitch(clef);
+  const stats = { total: 0, rendered: 0 };
 
-  const noteEls = [];
-  let noteId = 1;
-
-  for (const meas of measures) {
-    const layerNotes = [];
-    for (const ev of meas.events) {
-      const noteInfo = parseNote(ev.value);
-      if (!noteInfo) continue;
-
-      const { dur, dots } = durationToMEI(ev.dur);
-      const id = `n${noteId++}`;
-
-      if (noteInfo.rest) {
-        layerNotes.push(`<rest xml:id="${id}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}/>`);
-      } else {
-        const accAttr = noteInfo.acc ? ` accid="${noteInfo.acc}"` : '';
-        layerNotes.push(
-          `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}${accAttr}/>`
-        );
-      }
-    }
-
-    // Fill rest of measure if needed
-    noteEls.push(`
-      <measure n="${meas.index + 1}" right="${meas.index === measures.length - 1 ? 'end' : 'single'}">
-        <staff n="1">
-          <layer n="1">
-            ${layerNotes.join('\n            ')}
-          </layer>
-        </staff>
+  const measureEls = [];
+  for (let c = 0; c < numCycles; c++) {
+    const staffEls = parsed.map((p, idx) => {
+      const layerEls = p.layers.map((layerElements, li) => {
+        const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, c);
+        return `
+          <layer n="${li + 1}">
+            ${items.join('\n            ')}
+          </layer>`;
+      });
+      return `
+        <staff n="${idx + 1}">${layerEls.join('')}
+        </staff>`;
+    });
+    measureEls.push(`
+      <measure n="${c + 1}" right="${c === numCycles - 1 ? 'end' : 'single'}">${staffEls.join('')}
       </measure>`);
   }
+
+  const staffDefs = parsed.map((p, idx) =>
+    `<staffDef n="${idx + 1}" lines="5" clef.shape="${clefShape}" clef.line="${clefLine}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`
+  ).join('\n              ');
 
   const mei = `<?xml version="1.0" encoding="UTF-8"?>
 <mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="4.0">
@@ -590,13 +806,13 @@ function eventsToMEI(events, { meter = '4/4', clef = 'treble', beatsPerCycle = 4
     <body>
       <mdiv>
         <score>
-          <scoreDef meter.count="${beatCount}" meter.unit="${beatUnit}" key.sig="0">
+          <scoreDef key.sig="0">
             <staffGrp>
-              <staffDef n="1" lines="5" clef.shape="${clefShape}" clef.line="${clefLine}"/>
+              ${staffDefs}
             </staffGrp>
           </scoreDef>
           <section>
-          ${noteEls.join('')}
+          ${measureEls.join('')}
           </section>
         </score>
       </mdiv>
@@ -604,7 +820,11 @@ function eventsToMEI(events, { meter = '4/4', clef = 'treble', beatsPerCycle = 4
   </music>
 </mei>`;
 
-  return mei;
+  return { mei, stats };
+}
+
+function patternToMEI(src, numCycles, opts = {}) {
+  return patternsToMEI([{ label: null, src }], numCycles, opts);
 }
 
 // ─── 4. UI & Verovio rendering ───────────────────────────────────────────────
@@ -625,11 +845,34 @@ async function initVerovio() {
   }
 }
 
+// Shared by the scratch playground and the live-lines renderer below.
+function renderToScoreArea(mei) {
+  const svg = vrvToolkit.renderData(mei, {
+    pageWidth: 2400,
+    pageHeight: 800,
+    pageMarginTop: 80,
+    pageMarginBottom: 80,
+    pageMarginLeft: 80,
+    pageMarginRight: 80,
+    scale: 40,
+    adjustPageWidth: 1,
+    adjustPageHeight: 1,
+  });
+  const scoreArea = document.getElementById('scoreArea');
+  scoreArea.innerHTML = svg;
+  const svgEl = scoreArea.querySelector('svg');
+  if (svgEl) {
+    svgEl.style.filter = '';
+    svgEl.style.maxWidth = '100%';
+    svgEl.style.height = 'auto';
+  }
+}
+
 function renderPattern() {
   const patInput = document.getElementById('patInput').value.trim();
   const cycles   = parseInt(document.getElementById('cyclesOpt').value);
-  const meter    = document.getElementById('meterOpt').value;
   const clef     = document.getElementById('clefOpt').value;
+  const mode     = document.getElementById('modeOpt').value;
   const statusEl = document.getElementById('status');
 
   if (!vrvToolkit) {
@@ -658,35 +901,21 @@ function renderPattern() {
     document.getElementById('eventDetails').style.display = '';
     document.getElementById('meiDetails').style.display = '';
 
-    // Convert to MEI
-    const mei = eventsToMEI(events, { meter, clef });
+    // Convert to MEI and render
+    const { mei, stats } = patternToMEI(patInput, cycles, { clef, mode });
     document.getElementById('meiPre').textContent = mei;
+    renderToScoreArea(mei);
 
-    // Render with Verovio — pass options directly into renderData
-    const svg = vrvToolkit.renderData(mei, {
-      pageWidth: 2400,
-      pageHeight: 800,
-      pageMarginTop: 80,
-      pageMarginBottom: 80,
-      pageMarginLeft: 80,
-      pageMarginRight: 80,
-      scale: 40,
-      adjustPageWidth: 1,
-      adjustPageHeight: 1,
-    });
-    const scoreArea = document.getElementById('scoreArea');
-    scoreArea.innerHTML = svg;
-
-    // No invert needed on white background
-    const svgEl = scoreArea.querySelector('svg');
-    if (svgEl) {
-      svgEl.style.filter = '';
-      svgEl.style.maxWidth = '100%';
-      svgEl.style.height = 'auto';
+    if (stats.rendered === 0) {
+      statusEl.textContent = 'No pitch data found in this pattern — try Rhythm mode';
+      statusEl.className = 'status err';
+    } else if (stats.rendered < stats.total) {
+      statusEl.textContent = `✓ ${stats.rendered}/${stats.total} events rendered · ${stats.total - stats.rendered} skipped (no pitch data)`;
+      statusEl.className = 'status ok';
+    } else {
+      statusEl.textContent = `✓ ${events.length} events · ${stats.rendered} notes rendered`;
+      statusEl.className = 'status ok';
     }
-
-    statusEl.textContent = `✓ ${events.length} events · ${Math.ceil(events.length / 1)} notes rendered`;
-    statusEl.className = 'status ok';
 
   } catch (e) {
     statusEl.textContent = 'Error: ' + e.message;
@@ -694,6 +923,72 @@ function renderPattern() {
     console.error(e);
   }
 }
+
+// ─── Live lines: flagged rows feed the score in real time ───────────────────
+function getFlaggedLines() {
+  return [...document.querySelectorAll('.live-line-row')]
+    .filter(row => row.querySelector('.live-line-checkbox').checked)
+    .map(row => ({
+      label: row.querySelector('.live-line-label').textContent.trim(),
+      src: row.querySelector('.live-line-input').value.trim()
+    }))
+    .filter(p => p.src.length > 0);
+}
+
+function renderLivePattern() {
+  if (!vrvToolkit) return;
+
+  const cycles   = parseInt(document.getElementById('cyclesOpt').value);
+  const clef     = document.getElementById('clefOpt').value;
+  const mode     = document.getElementById('modeOpt').value;
+  const statusEl = document.getElementById('status');
+  const patterns = getFlaggedLines();
+
+  if (patterns.length === 0) {
+    statusEl.textContent = 'No lines flagged — check a line below to send it to the score';
+    statusEl.className = 'status info';
+    document.getElementById('scoreArea').innerHTML =
+      '<div class="placeholder"><span class="big">𝄞</span>Flag a line to send it to the score</div>';
+    document.getElementById('eventDetails').style.display = 'none';
+    document.getElementById('meiDetails').style.display = 'none';
+    return;
+  }
+
+  try {
+    const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode });
+    document.getElementById('meiPre').textContent = mei;
+    document.getElementById('meiDetails').style.display = '';
+    document.getElementById('eventDetails').style.display = 'none';
+    renderToScoreArea(mei);
+
+    const labels = patterns.map(p => p.label).join(', ');
+    if (stats.rendered === 0) {
+      statusEl.textContent = `No pitch data found in flagged lines (${labels}) — try Rhythm mode`;
+      statusEl.className = 'status err';
+    } else if (stats.rendered < stats.total) {
+      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered}/${stats.total} events (${stats.total - stats.rendered} skipped)`;
+      statusEl.className = 'status ok';
+    } else {
+      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered} events rendered`;
+      statusEl.className = 'status ok';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+    statusEl.className = 'status err';
+    console.error(e);
+  }
+}
+
+let liveDebounceTimer = null;
+function scheduleLiveRender() {
+  clearTimeout(liveDebounceTimer);
+  liveDebounceTimer = setTimeout(renderLivePattern, 500);
+}
+
+document.querySelectorAll('.live-line-row').forEach(row => {
+  row.querySelector('.live-line-input').addEventListener('input', scheduleLiveRender);
+  row.querySelector('.live-line-checkbox').addEventListener('change', scheduleLiveRender);
+});
 
 // Wire up UI
 document.getElementById('convertBtn').disabled = true;
@@ -705,6 +1000,8 @@ document.getElementById('patInput').addEventListener('keydown', e => {
 document.querySelectorAll('.preset-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.getElementById('patInput').value = btn.dataset.p;
+    if (btn.dataset.mode) document.getElementById('modeOpt').value = btn.dataset.mode;
+    if (btn.dataset.cycles) document.getElementById('cyclesOpt').value = btn.dataset.cycles;
     renderPattern();
   });
 });
