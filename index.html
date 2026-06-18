@@ -149,10 +149,39 @@
     color: var(--muted);
   }
 
+  .bridge-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .bridge-row label {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10px;
+  }
+
+  .bridge-row input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 5px 8px;
+    outline: none;
+    flex: 1;
+    max-width: 280px;
+  }
+
   .live-lines {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    max-height: 360px;
+    overflow-y: auto;
   }
 
   .live-line-row {
@@ -361,28 +390,13 @@
     <span class="live-panel-title">Live Lines</span>
     <span class="live-panel-hint">flag a line to send it to the score — updates as you type</span>
   </div>
-  <div class="live-lines" id="liveLines">
-    <div class="live-line-row">
-      <input type="checkbox" class="live-line-checkbox" id="flag-d1">
-      <label class="live-line-label" for="flag-d1">d1</label>
-      <input type="text" class="live-line-input" value="bd sn hh hh" placeholder="Enter mini-notation…">
-    </div>
-    <div class="live-line-row">
-      <input type="checkbox" class="live-line-checkbox" id="flag-d2">
-      <label class="live-line-label" for="flag-d2">d2</label>
-      <input type="text" class="live-line-input" value="c4 e4 g4" placeholder="Enter mini-notation…">
-    </div>
-    <div class="live-line-row">
-      <input type="checkbox" class="live-line-checkbox" id="flag-d3">
-      <label class="live-line-label" for="flag-d3">d3</label>
-      <input type="text" class="live-line-input" placeholder="Enter mini-notation…">
-    </div>
-    <div class="live-line-row">
-      <input type="checkbox" class="live-line-checkbox" id="flag-d4">
-      <label class="live-line-label" for="flag-d4">d4</label>
-      <input type="text" class="live-line-input" placeholder="Enter mini-notation…">
-    </div>
+  <div class="bridge-row">
+    <label for="bridgeUrlInput">Bridge</label>
+    <input type="text" id="bridgeUrlInput" value="ws://127.0.0.1:8766" placeholder="ws://127.0.0.1:8766">
+    <button class="preset-btn" id="bridgeConnectBtn">Connect</button>
+    <span class="status info" id="bridgeStatus" style="padding:0">Not connected</span>
   </div>
+  <div class="live-lines" id="liveLines"></div>
 </div>
 
 <div class="options-row">
@@ -399,6 +413,13 @@
     <select id="modeOpt">
       <option value="pitch" selected>Pitch</option>
       <option value="rhythm">Rhythm</option>
+    </select>
+  </div>
+  <div class="option">
+    <label for="pitchInputOpt">Pitch input</label>
+    <select id="pitchInputOpt">
+      <option value="name" selected>Note names (c4)</option>
+      <option value="midi">Numbers (MIDI, n "60 62")</option>
     </select>
   </div>
   <div class="option">
@@ -462,14 +483,23 @@ function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
 function isPow2(n) { return n > 0 && (n & (n - 1)) === 0; }
 function lowerPow2(n) { let p = 1; while (p * 2 <= n) p *= 2; return p; }
 
-// <a b c> picks one alternative per cycle (cycle 0 -> a, 1 -> b, 2 -> c,
-// 3 -> a again...). Resolve repeatedly in case an alternative is itself
-// an alt (not produced by the current parser, but safe either way).
-function resolveAlt(el, cycleIndex) {
-  while (el.type === 'alt') {
-    const len = el.alternatives.length;
-    const idx = ((cycleIndex % len) + len) % len;
-    el = el.alternatives[idx];
+// Resolves the two cycle-dependent node types into whatever they should
+// actually be on a given cycle:
+//  - 'alt' (<a b c>) picks one alternative per cycle (0 -> a, 1 -> b,
+//    2 -> c, 3 -> a again...).
+//  - 'slow' (a/3) only "plays" once every N cycles; on the other cycles
+//    it's a rest, same slot length.
+// The loop lets either one wrap the other in any order.
+function resolveCycleVariant(el, cycleIndex) {
+  while (el.type === 'alt' || el.type === 'slow') {
+    if (el.type === 'alt') {
+      const len = el.alternatives.length;
+      const idx = ((cycleIndex % len) + len) % len;
+      el = el.alternatives[idx];
+    } else {
+      const phase = ((cycleIndex % el.n) + el.n) % el.n;
+      el = phase === 0 ? el.inner : { type: 'leaf', value: '~', weight: 1 };
+    }
   }
   return el;
 }
@@ -487,10 +517,10 @@ function tokenise(src) {
     .filter(Boolean);
 }
 
-// Parse modifier suffix from a raw token: c4*3, c4!2, c4@3, [..]@2 etc.
-// Returns { base, op, n } where op is '*', '!', '@', or null
+// Parse modifier suffix from a raw token: c4*3, c4!2, c4@3, c4/2 etc.
+// Returns { base, op, n } where op is '*', '!', '@', '/', or null
 function parseMod(tok) {
-  const m = tok.match(/^(.*?)([*!@])(\d+(?:\.\d+)?)$/);
+  const m = tok.match(/^(.*?)([*!@/])(\d+(?:\.\d+)?)$/);
   if (!m) return { base: tok, op: null, n: 1 };
   return { base: m[1], op: m[2], n: parseFloat(m[3]) };
 }
@@ -521,7 +551,7 @@ function parseTokens(tokens, pos, closeTok = null) {
       pos = sub.pos;
       let op = null, n = 1;
       if (pos < tokens.length) {
-        const m = tokens[pos].match(/^([*!@])(\d+(?:\.\d+)?)$/);
+        const m = tokens[pos].match(/^([*!@/])(\d+(?:\.\d+)?)$/);
         if (m) { op = m[1]; n = parseFloat(m[2]); pos++; }
       }
       // Parallel layers (",") are only rendered as true simultaneous
@@ -540,6 +570,8 @@ function parseTokens(tokens, pos, closeTok = null) {
         for (let i = 0; i < Math.round(speed); i++)
           repeated.push(...subElements);
         current().push({ type: 'group', children: repeated, weight: 1 });
+      } else if (op === '/') {
+        current().push({ type: 'slow', inner: { type: 'group', children: subElements, weight: 1 }, n: Math.round(n), weight: 1 });
       } else {
         current().push({ type: 'group', children: subElements, weight });
       }
@@ -584,6 +616,9 @@ function parseTokens(tokens, pos, closeTok = null) {
       for (let i = 0; i < Math.round(n); i++)
         children.push({ type: 'leaf', value: base, weight: 1 });
       current().push({ type: 'group', children, weight: 1 });
+    } else if (op === '/') {
+      // slow: plays once every n cycles, rests on the others
+      current().push({ type: 'slow', inner: { type: 'leaf', value: base, weight: 1 }, n: Math.round(n), weight: 1 });
     } else {
       current().push({ type: 'leaf', value: base, weight: 1 });
     }
@@ -600,7 +635,7 @@ function elementsToEvents(elements, offset, length, cycleIndex = 0) {
   const events = [];
   for (const el of elements) {
     const elLen = length.mul(new Fraction(el.weight, totalWeight));
-    const resolved = resolveAlt(el, cycleIndex);
+    const resolved = resolveCycleVariant(el, cycleIndex);
     if (resolved.type === 'leaf') {
       events.push({ value: resolved.value, begin: cursor, end: cursor.add(elLen) });
     } else {
@@ -652,29 +687,50 @@ const DUR_TABLE = [
   [new Fraction(1, 32),  '32', 0],
 ];
 
-// Map a duration fraction (relative to a 4/4 measure = 1 whole note) to MEI
-function durationToMEI(frac, beatsPerCycle = 4) {
-  // In 4/4, 1 cycle = 4 beats, 1 whole = 1 cycle
-  const normalized = frac; // already relative to one cycle = one whole note
+// Map a duration fraction (in cycles, 1 = whole note) to the nearest MEI
+// duration. `exact` tells the caller whether this was a clean notatable
+// value or had to be snapped — surfaced in the UI so an approximated
+// rhythm is never silently presented as exact.
+function durationToMEI(frac) {
   let best = DUR_TABLE[0];
   let bestDiff = Infinity;
   for (const entry of DUR_TABLE) {
-    const diff = Math.abs(entry[0].toFloat() - normalized.toFloat());
+    const diff = Math.abs(entry[0].toFloat() - frac.toFloat());
     if (diff < bestDiff) { bestDiff = diff; best = entry; }
   }
-  return { dur: best[1], dots: best[2] };
+  return { dur: best[1], dots: best[2], exact: bestDiff < 1e-9 };
 }
 
 // Parse a Strudel note name → MEI pname + oct
 // Strudel: c4, d#5, eb3, r (rest), ~ (hold/tie)
-function parseNote(val) {
+function parseNote(val, pitchInput = 'name') {
   if (val === 'r' || val === '~') return { rest: true, tie: val === '~' };
+
+  if (pitchInput === 'midi' && /^-?\d+(\.\d+)?$/.test(val)) {
+    return midiNumberToPitchInfo(Number(val));
+  }
+
   // Match e.g. "c#4", "eb5", "a4", "C4"
   const m = val.toLowerCase().match(/^([a-g])([#b]?)(\d+)$/);
   if (!m) return null;
   const pname = m[1];
   const acc = m[2] === '#' ? 's' : m[2] === 'b' ? 'f' : '';
   const oct = parseInt(m[3]);
+  return { pname, acc, oct, rest: false };
+}
+
+// Tidal's `n`/`note` patterns are often plain MIDI numbers (60 = middle C,
+// scientific pitch notation). Matches the same convention used in the
+// sibling VexFlow/Verovio comparison project for consistency.
+const MIDI_PITCH_CLASSES = [
+  ['c', ''], ['c', 's'], ['d', ''], ['d', 's'], ['e', ''], ['f', ''],
+  ['f', 's'], ['g', ''], ['g', 's'], ['a', ''], ['a', 's'], ['b', '']
+];
+function midiNumberToPitchInfo(number) {
+  const rounded = Math.round(number);
+  const idx = ((rounded % 12) + 12) % 12;
+  const [pname, acc] = MIDI_PITCH_CLASSES[idx];
+  const oct = Math.floor(rounded / 12) - 1;
   return { pname, acc, oct, rest: false };
 }
 
@@ -703,20 +759,21 @@ let noteIdSeq = 1;
 // recognized note name (e.g. a sample name like "bd") yields no event —
 // the caller tracks this via `stats` to offer a "switch to Rhythm mode"
 // fallback. In rhythm mode every non-rest token renders at `fixedPitch`.
-function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats) {
+function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput) {
   stats.total++;
   let noteInfo;
   if (mode === 'rhythm') {
     const isRest = value === 'r' || value === '~';
     noteInfo = isRest ? { rest: true } : { rest: false, pname: fixedPitch.pname, oct: fixedPitch.oct, acc: '' };
   } else {
-    noteInfo = parseNote(value);
+    noteInfo = parseNote(value, pitchInput);
     if (!noteInfo) return null;
   }
 
   const id = `n${noteIdSeq++}`;
-  const { dur, dots } = durationToMEI(writtenDur);
+  const { dur, dots, exact } = durationToMEI(writtenDur);
   stats.rendered++;
+  if (!exact) stats.approximated++;
 
   if (noteInfo.rest) {
     return `<rest xml:id="${id}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}/>`;
@@ -730,7 +787,7 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats) {
 // num/numbase product of every tuplet enclosing this call, applied to
 // leaf durations so nested tuplets compound correctly. `cycleIndex`
 // picks the right branch of any <a b c> alternation encountered.
-function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIndex) {
+function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIndex, pitchInput) {
   const totalWeight = elements.reduce((s, e) => s + e.weight, 0);
   const n = elements.length;
   const allEqualWeight = n > 0 && elements.every(e => e.weight === elements[0].weight);
@@ -741,12 +798,12 @@ function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIn
   const items = [];
   for (const el of elements) {
     const elLen = length.mul(new Fraction(el.weight, totalWeight));
-    const resolved = resolveAlt(el, cycleIndex);
+    const resolved = resolveCycleVariant(el, cycleIndex);
     if (resolved.type === 'leaf') {
-      const xml = noteOrRestXML(resolved.value, elLen.mul(childScale), mode, fixedPitch, stats);
+      const xml = noteOrRestXML(resolved.value, elLen.mul(childScale), mode, fixedPitch, stats, pitchInput);
       if (xml) items.push(xml);
     } else {
-      items.push(...buildMEIItems(resolved.children, elLen, childScale, mode, fixedPitch, stats, cycleIndex));
+      items.push(...buildMEIItems(resolved.children, elLen, childScale, mode, fixedPitch, stats, cycleIndex, pitchInput));
     }
   }
 
@@ -763,7 +820,7 @@ function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIn
 // multiple simultaneous <layer> elements inside that one staff — true
 // independent-rhythm polyphony, not chords, which is correct since the
 // comma-separated parts usually don't share a common pulse.
-function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch' } = {}) {
+function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', pitchInput = 'name' } = {}) {
   noteIdSeq = 1;
   const parsed = patterns.map(p => {
     const tokens = tokenise(p.src);
@@ -771,16 +828,24 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch' } 
     return { label: p.label, layers };
   });
 
-  const clefShape = clef === 'treble' ? 'G' : 'F';
-  const clefLine  = clef === 'treble' ? '2' : '4';
+  // Rhythm mode uses a real single-line percussion staff — genuinely
+  // unpitched notation, rather than a 5-line staff with every note forced
+  // onto one fixed pitch (which implies pitch information that isn't
+  // there). Verovio renders no clef glyph for this configuration, but
+  // that's consistent with the sibling VexFlow/Verovio comparison
+  // project's reference implementation too, not a defect of this one.
+  const isRhythm = mode === 'rhythm';
+  const staffLines = isRhythm ? '1' : '5';
+  const clefShape = isRhythm ? 'perc' : (clef === 'treble' ? 'G' : 'F');
+  const clefLine  = isRhythm ? '1' : (clef === 'treble' ? '2' : '4');
   const fixedPitch = clefMiddlePitch(clef);
-  const stats = { total: 0, rendered: 0 };
+  const stats = { total: 0, rendered: 0, approximated: 0 };
 
   const measureEls = [];
   for (let c = 0; c < numCycles; c++) {
     const staffEls = parsed.map((p, idx) => {
       const layerEls = p.layers.map((layerElements, li) => {
-        const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, c);
+        const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, c, pitchInput);
         return `
           <layer n="${li + 1}">
             ${items.join('\n            ')}
@@ -796,7 +861,7 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch' } 
   }
 
   const staffDefs = parsed.map((p, idx) =>
-    `<staffDef n="${idx + 1}" lines="5" clef.shape="${clefShape}" clef.line="${clefLine}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`
+    `<staffDef n="${idx + 1}" lines="${staffLines}" clef.shape="${clefShape}" clef.line="${clefLine}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`
   ).join('\n              ');
 
   const mei = `<?xml version="1.0" encoding="UTF-8"?>
@@ -845,6 +910,15 @@ async function initVerovio() {
   }
 }
 
+// A duration that couldn't be matched exactly (rare with tuplet detection,
+// but still possible for mixed-weight groups) is silently rounded to the
+// nearest notatable value — this surfaces that instead of hiding it.
+function approximatedSuffix(stats) {
+  return stats.approximated > 0
+    ? ` · ${stats.approximated} duration${stats.approximated === 1 ? '' : 's'} approximated`
+    : '';
+}
+
 // Shared by the scratch playground and the live-lines renderer below.
 function renderToScoreArea(mei) {
   const svg = vrvToolkit.renderData(mei, {
@@ -869,11 +943,12 @@ function renderToScoreArea(mei) {
 }
 
 function renderPattern() {
-  const patInput = document.getElementById('patInput').value.trim();
-  const cycles   = parseInt(document.getElementById('cyclesOpt').value);
-  const clef     = document.getElementById('clefOpt').value;
-  const mode     = document.getElementById('modeOpt').value;
-  const statusEl = document.getElementById('status');
+  const patInput   = document.getElementById('patInput').value.trim();
+  const cycles     = parseInt(document.getElementById('cyclesOpt').value);
+  const clef       = document.getElementById('clefOpt').value;
+  const mode       = document.getElementById('modeOpt').value;
+  const pitchInput = document.getElementById('pitchInputOpt').value;
+  const statusEl   = document.getElementById('status');
 
   if (!vrvToolkit) {
     statusEl.textContent = 'Verovio not yet loaded…'; statusEl.className = 'status info'; return;
@@ -902,7 +977,7 @@ function renderPattern() {
     document.getElementById('meiDetails').style.display = '';
 
     // Convert to MEI and render
-    const { mei, stats } = patternToMEI(patInput, cycles, { clef, mode });
+    const { mei, stats } = patternToMEI(patInput, cycles, { clef, mode, pitchInput });
     document.getElementById('meiPre').textContent = mei;
     renderToScoreArea(mei);
 
@@ -910,10 +985,10 @@ function renderPattern() {
       statusEl.textContent = 'No pitch data found in this pattern — try Rhythm mode';
       statusEl.className = 'status err';
     } else if (stats.rendered < stats.total) {
-      statusEl.textContent = `✓ ${stats.rendered}/${stats.total} events rendered · ${stats.total - stats.rendered} skipped (no pitch data)`;
+      statusEl.textContent = `✓ ${stats.rendered}/${stats.total} events rendered · ${stats.total - stats.rendered} skipped (no pitch data)${approximatedSuffix(stats)}`;
       statusEl.className = 'status ok';
     } else {
-      statusEl.textContent = `✓ ${events.length} events · ${stats.rendered} notes rendered`;
+      statusEl.textContent = `✓ ${events.length} events · ${stats.rendered} notes rendered${approximatedSuffix(stats)}`;
       statusEl.className = 'status ok';
     }
 
@@ -938,11 +1013,12 @@ function getFlaggedLines() {
 function renderLivePattern() {
   if (!vrvToolkit) return;
 
-  const cycles   = parseInt(document.getElementById('cyclesOpt').value);
-  const clef     = document.getElementById('clefOpt').value;
-  const mode     = document.getElementById('modeOpt').value;
-  const statusEl = document.getElementById('status');
-  const patterns = getFlaggedLines();
+  const cycles     = parseInt(document.getElementById('cyclesOpt').value);
+  const clef       = document.getElementById('clefOpt').value;
+  const mode       = document.getElementById('modeOpt').value;
+  const pitchInput = document.getElementById('pitchInputOpt').value;
+  const statusEl   = document.getElementById('status');
+  const patterns   = getFlaggedLines();
 
   if (patterns.length === 0) {
     statusEl.textContent = 'No lines flagged — check a line below to send it to the score';
@@ -955,7 +1031,7 @@ function renderLivePattern() {
   }
 
   try {
-    const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode });
+    const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput });
     document.getElementById('meiPre').textContent = mei;
     document.getElementById('meiDetails').style.display = '';
     document.getElementById('eventDetails').style.display = 'none';
@@ -966,10 +1042,10 @@ function renderLivePattern() {
       statusEl.textContent = `No pitch data found in flagged lines (${labels}) — try Rhythm mode`;
       statusEl.className = 'status err';
     } else if (stats.rendered < stats.total) {
-      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered}/${stats.total} events (${stats.total - stats.rendered} skipped)`;
+      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered}/${stats.total} events (${stats.total - stats.rendered} skipped)${approximatedSuffix(stats)}`;
       statusEl.className = 'status ok';
     } else {
-      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered} events rendered`;
+      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered} events rendered${approximatedSuffix(stats)}`;
       statusEl.className = 'status ok';
     }
   } catch (e) {
@@ -985,10 +1061,122 @@ function scheduleLiveRender() {
   liveDebounceTimer = setTimeout(renderLivePattern, 500);
 }
 
-document.querySelectorAll('.live-line-row').forEach(row => {
+// Tidal supports orbits d1-d16; generate one row per orbit rather than
+// hand-writing 16 near-identical blocks. d1/d2 get a demo pattern seeded
+// so the panel isn't empty on first load.
+const LIVE_LINE_COUNT = 16;
+const liveLinesEl = document.getElementById('liveLines');
+const SEED_PATTERNS = { d1: 'bd sn hh hh', d2: 'c4 e4 g4' };
+for (let i = 1; i <= LIVE_LINE_COUNT; i++) {
+  const line = `d${i}`;
+  const row = document.createElement('div');
+  row.className = 'live-line-row';
+  row.innerHTML = `
+    <input type="checkbox" class="live-line-checkbox" id="flag-${line}">
+    <label class="live-line-label" for="flag-${line}">${line}</label>
+    <input type="text" class="live-line-input" id="liveInput-${line}"
+      value="${SEED_PATTERNS[line] || ''}" placeholder="Enter mini-notation…">
+  `;
+  liveLinesEl.appendChild(row);
   row.querySelector('.live-line-input').addEventListener('input', scheduleLiveRender);
   row.querySelector('.live-line-checkbox').addEventListener('change', scheduleLiveRender);
-});
+}
+
+// ─── Tidal/Pulsar bridge: WebSocket client ───────────────────────────────────
+// Talks to tidal-score-bridge.js (see ../tidal-score-bridge.js), fed by the
+// pulsar-tidal-score-forwarder package. We only consume text-based
+// messages (source-update/pattern-update) and parse them with our own
+// parser above — deliberately not the "tidal-event"/"clock"/"sync"
+// OSC-derived messages the bridge also relays, since those carry flat,
+// already-resolved playback events with no structural grouping, which
+// would defeat tuplet detection (see project notes on this decision).
+let bridgeSocket = null;
+
+// Same convention used by the bridge/forwarder's own line-extraction so a
+// raw .tidal source maps to the same dN/pattern pairs on both ends.
+const TIDAL_LINE_RE = /\b(d\d+)\b.*?\b(?:sound|s|note|n)\s+"([^"]+)"/g;
+
+function applyPatternToLine(line, pattern, { flag = false } = {}) {
+  const input = document.getElementById(`liveInput-${line}`);
+  const checkbox = document.getElementById(`flag-${line}`);
+  if (!input || !checkbox) return;
+  input.value = pattern;
+  if (flag) checkbox.checked = true;
+}
+
+function handleBridgeMessage(message) {
+  if (!message || !message.type) return;
+  const bridgeStatusEl = document.getElementById('bridgeStatus');
+
+  if (message.type === 'bridge-status') {
+    bridgeStatusEl.textContent = `Connected (${message.clients} client${message.clients === 1 ? '' : 's'})`;
+    bridgeStatusEl.className = 'status ok';
+    return;
+  }
+
+  if (message.type === 'source-update' && typeof message.source === 'string') {
+    TIDAL_LINE_RE.lastIndex = 0;
+    let match;
+    while ((match = TIDAL_LINE_RE.exec(message.source))) {
+      const [, line, pattern] = match;
+      applyPatternToLine(line, pattern, { flag: line === message.selectedLine });
+    }
+    scheduleLiveRender();
+    return;
+  }
+
+  if (message.type === 'pattern-update' && message.line && typeof message.pattern === 'string') {
+    applyPatternToLine(message.line, message.pattern, { flag: true });
+    scheduleLiveRender();
+    return;
+  }
+
+  // sync / clock / tidal-event: ignored by design, see comment above.
+}
+
+function connectBridge() {
+  const statusEl = document.getElementById('bridgeStatus');
+  const url = document.getElementById('bridgeUrlInput').value.trim() || 'ws://127.0.0.1:8766';
+
+  if (bridgeSocket) { bridgeSocket.close(); bridgeSocket = null; }
+
+  let socket;
+  try {
+    socket = new WebSocket(url);
+  } catch (e) {
+    statusEl.textContent = 'Invalid bridge URL: ' + e.message;
+    statusEl.className = 'status err';
+    return;
+  }
+  bridgeSocket = socket;
+
+  statusEl.textContent = 'Connecting…';
+  statusEl.className = 'status info';
+
+  socket.addEventListener('open', () => {
+    statusEl.textContent = 'Bridge connected';
+    statusEl.className = 'status ok';
+  });
+  socket.addEventListener('close', () => {
+    if (bridgeSocket === socket) {
+      statusEl.textContent = 'Bridge disconnected';
+      statusEl.className = 'status info';
+    }
+  });
+  socket.addEventListener('error', () => {
+    statusEl.textContent = 'Bridge connection error — is tidal-score-bridge.js running?';
+    statusEl.className = 'status err';
+  });
+  socket.addEventListener('message', (event) => {
+    try {
+      handleBridgeMessage(JSON.parse(event.data));
+    } catch (e) {
+      console.error('Bad bridge message:', e);
+    }
+  });
+}
+
+document.getElementById('bridgeConnectBtn').addEventListener('click', connectBridge);
 
 // Wire up UI
 document.getElementById('convertBtn').disabled = true;

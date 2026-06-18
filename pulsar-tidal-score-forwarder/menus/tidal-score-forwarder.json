@@ -1,0 +1,34 @@
+{
+  "menu": [
+    {
+      "label": "Packages",
+      "submenu": [
+        {
+          "label": "Tidal Score Forwarder",
+          "submenu": [
+            {
+              "label": "Send Active Editor",
+              "command": "tidal-verovio-forwarder:send-active-editor"
+            },
+            {
+              "label": "Send Selection or Current Line",
+              "command": "tidal-verovio-forwarder:send-selection-or-line"
+            },
+            {
+              "label": "Sync Score Clock",
+              "command": "tidal-verovio-forwarder:sync-score-clock"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "context-menu": {
+    "atom-text-editor": [
+      {
+        "label": "Send Tidal line to score",
+        "command": "tidal-verovio-forwarder:send-selection-or-line"
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "atom-workspace": {
+    "cmd-alt-shift-s": "tidal-verovio-forwarder:send-active-editor",
+    "cmd-alt-shift-l": "tidal-verovio-forwarder:send-selection-or-line",
+    "cmd-alt-shift-0": "tidal-verovio-forwarder:sync-score-clock"
+  }
+}

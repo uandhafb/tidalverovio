@@ -1,0 +1,50 @@
+{
+  "name": "tidal-verovio-forwarder",
+  "main": "./lib/main",
+  "version": "0.1.0",
+  "description": "Forward flagged TidalCycles score lines from Pulsar to the Tidal VexFlow performer bridge.",
+  "repository": "https://github.com/uandha/tidal-vexflow-teste",
+  "license": "MIT",
+  "engines": {
+    "atom": ">=1.0.0 <2.0.0"
+  },
+  "configSchema": {
+    "bridgeUrl": {
+      "type": "string",
+      "default": "http://127.0.0.1:8766",
+      "description": "Local tidal-score-bridge base URL."
+    },
+    "autoSendOnSave": {
+      "type": "boolean",
+      "default": false,
+      "description": "Send the active .tidal buffer to the bridge whenever it is saved."
+    },
+    "autoSendOnChange": {
+      "type": "boolean",
+      "default": true,
+      "description": "Send the active .tidal buffer to the bridge shortly after each edit."
+    },
+    "autoSendDebounceMs": {
+      "type": "integer",
+      "default": 250,
+      "minimum": 50,
+      "description": "Delay in milliseconds before auto-send-on-change fires."
+    },
+    "syncOnTidalEvaluation": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically sync the score clock when a Tidal evaluation command is dispatched in Pulsar."
+    },
+    "syncAfterEvaluationDelayMs": {
+      "type": "integer",
+      "default": 80,
+      "minimum": 0,
+      "description": "Delay in milliseconds between a Tidal evaluation command and the score sync message."
+    },
+    "tidalEvaluationCommandPattern": {
+      "type": "string",
+      "default": "tidal|tidalcycles|tidal-cycles|haskell-ghci",
+      "description": "Regular expression used to detect Pulsar commands that evaluate Tidal code."
+    }
+  }
+}
