@@ -2,297 +2,406 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Strudel → Score</title>
 <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js"></script>
 <style>
   :root {
-    --bg: #ffffff;
-    --surface: #f5f5f5;
-    --border: #d0d0d0;
-    --accent: #1a1a1a;
-    --accent2: #555555;
-    --text: #1a1a1a;
-    --muted: #888;
-    --font-mono: 'Courier New', monospace;
+    color-scheme: light;
+    --bg: #f7f5ef;
+    --panel: #ffffff;
+    --ink: #1e2327;
+    --muted: #66707a;
+    --line: #d9d4c8;
+    --accent: #146c94;
+    --accent-2: #8a3ffc;
+    --warn: #b45f06;
+    --bad: #a32828;
+    --ok: #0f7a55;
+    --shadow: 0 10px 28px rgba(20, 29, 38, 0.08);
+    --pulse-rest: #ece8de;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
 
   body {
+    margin: 0;
     background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-mono);
+    color: var(--ink);
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    padding: 32px;
-    gap: 24px;
+  }
+
+  main {
+    width: min(1280px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 24px 0 32px;
   }
 
   header {
     display: flex;
-    align-items: baseline;
-    gap: 16px;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 16px;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
   }
 
   h1 {
-    font-size: 13px;
-    font-weight: normal;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--accent);
+    margin: 0;
+    font-size: clamp(1.55rem, 2.3vw, 2.4rem);
+    line-height: 1.05;
   }
 
   .subtitle {
-    font-size: 11px;
+    margin: 8px 0 0;
+    max-width: 720px;
     color: var(--muted);
-    letter-spacing: 0.1em;
+    font-size: 0.98rem;
+    line-height: 1.45;
   }
 
-  .input-row {
-    display: flex;
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.7);
+    padding: 8px 12px;
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 999px;
+    background: var(--muted);
+  }
+  .status-dot.ok  { background: var(--ok); }
+  .status-dot.err { background: var(--bad); }
+
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(320px, 410px) minmax(0, 1fr);
+    gap: 18px;
+    margin-top: 20px;
+    align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .workspace { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .controls {
+    padding: 16px;
+    display: grid;
+    gap: 14px;
+  }
+
+  label.field {
+    display: grid;
+    gap: 7px;
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+
+  select,
+  input[type="number"],
+  input[type="text"] {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.94rem;
+    min-height: 40px;
+    padding: 8px 10px;
+  }
+
+  input.mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+
+  .control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
-    align-items: stretch;
   }
 
-  .pattern-input {
-    flex: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 15px;
-    padding: 12px 16px;
-    outline: none;
-    transition: border-color 0.15s;
-    letter-spacing: 0.04em;
-  }
-
-  .pattern-input:focus {
-    border-color: var(--accent);
-  }
-
-  .convert-btn {
-    background: var(--accent);
-    color: #ffffff;
-    border: none;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: bold;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    padding: 0 24px;
-    cursor: pointer;
-    transition: background 0.15s, transform 0.05s;
-  }
-
-  .convert-btn:hover { background: #333; }
-  .convert-btn:active { transform: scale(0.97); }
-  .convert-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-
-  .presets {
+  .actions {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
-    align-items: center;
   }
 
-  .presets-label {
-    font-size: 10px;
-    color: var(--muted);
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    margin-right: 4px;
+  .actions button {
+    border: 0;
+    border-radius: 6px;
+    min-height: 40px;
+    padding: 8px 14px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .actions button.secondary {
+    background: #ece8de;
+    color: var(--ink);
+    border: 1px solid var(--line);
+  }
+
+  .actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .cycle-controls {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 40px;
+    gap: 8px;
+    align-items: end;
+  }
+
+  .cycle-controls button {
+    min-height: 40px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: #ece8de;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  /* Presets as compact chips */
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .preset-btn {
-    background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff;
     color: var(--muted);
-    font-family: var(--font-mono);
-    font-size: 11px;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
     padding: 4px 10px;
     cursor: pointer;
-    transition: all 0.1s;
+    transition: all 0.12s;
   }
 
-  .preset-btn:hover {
-    border-color: var(--accent2);
-    color: var(--accent2);
-  }
+  .preset-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-  .live-panel {
-    border: 1px solid var(--border);
-    padding: 16px;
-  }
-
-  .live-panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .live-panel-title {
-    font-size: 11px;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .live-panel-hint {
-    font-size: 10px;
-    color: var(--muted);
-  }
-
-  .bridge-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  .bridge-row label {
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-size: 10px;
-  }
-
-  .bridge-row input {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 5px 8px;
-    outline: none;
-    flex: 1;
-    max-width: 280px;
-  }
-
+  /* Live lines */
   .live-lines {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 360px;
+    display: grid;
+    gap: 6px;
+    max-height: 300px;
     overflow-y: auto;
+    padding-right: 2px;
   }
 
   .live-line-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 18px 30px minmax(0, 1fr);
+    gap: 8px;
     align-items: center;
-    gap: 10px;
   }
 
   .live-line-checkbox {
-    width: 14px;
-    height: 14px;
+    width: 15px; height: 15px;
     cursor: pointer;
     accent-color: var(--accent);
-    flex-shrink: 0;
   }
 
   .live-line-label {
-    width: 28px;
-    font-size: 12px;
-    color: var(--accent2);
+    font-size: 0.84rem;
+    font-weight: 800;
+    color: var(--accent);
     cursor: pointer;
-    flex-shrink: 0;
   }
 
   .live-line-input {
-    flex: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    padding: 8px 12px;
-    outline: none;
+    min-height: 34px !important;
+    padding: 5px 9px !important;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace !important;
+    font-size: 0.85rem !important;
   }
 
-  .live-line-input:focus { border-color: var(--accent); }
+  .live-line-main { display: grid; gap: 3px; min-width: 0; }
 
-  .options-row {
+  .chain-badge { display: flex; flex-wrap: wrap; gap: 4px; min-height: 0; }
+  .chain-badge:empty { display: none; }
+  .chain-tag {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(15, 122, 85, 0.12);
+    color: var(--ok);
+    border: 1px solid rgba(15, 122, 85, 0.35);
+    white-space: nowrap;
+  }
+  .chain-tag.off {
+    background: transparent;
+    color: var(--muted);
+    border-color: var(--line);
+    text-decoration: line-through;
+  }
+
+  /* Bridge sub-panel */
+  .bridge-panel {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fbfaf6;
+    padding: 12px;
+    display: grid;
+    gap: 10px;
+  }
+
+  .bridge-status-row {
     display: flex;
-    gap: 24px;
+    justify-content: space-between;
     align-items: center;
+    gap: 8px;
+    font-size: 0.84rem;
+    color: var(--muted);
+  }
+
+  .bridge-status-left { display: inline-flex; align-items: center; gap: 8px; }
+
+  .live-dot {
+    width: 9px; height: 9px; border-radius: 999px;
+    background: var(--line);
+    transition: background 0.3s;
+  }
+  .live-dot.connecting { background: var(--warn); }
+  .live-dot.connected  { background: var(--ok); }
+  .live-dot.error      { background: var(--bad); }
+
+  /* Score column */
+  .score-wrap { display: grid; gap: 14px; }
+
+  .score-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
     flex-wrap: wrap;
   }
 
-  .option {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    font-size: 11px;
+  .score-title { display: grid; gap: 4px; }
+
+  .score-title h2 { margin: 0; font-size: 1rem; }
+
+  .score-title span {
     color: var(--muted);
-    letter-spacing: 0.1em;
+    font-size: 0.86rem;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   }
 
-  .option label { cursor: pointer; text-transform: uppercase; }
-
-  select {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 4px 8px;
-    outline: none;
-    cursor: pointer;
-  }
-
-  select:focus { border-color: var(--accent); }
-
-  .score-area {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    min-height: 220px;
+  #scoreArea {
+    min-height: 250px;
+    padding: 18px 12px 8px;
+    overflow-x: auto;
+    background: #fffdfa;
+    border-radius: 0 0 8px 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 32px 24px;
-    position: relative;
-    overflow-x: auto;
   }
 
-  .score-area svg {
-    max-width: 100%;
-    height: auto;
-  }
-
-  /* Verovio SVG theming */
-  .score-area svg g[id^="page"] { fill: var(--text); }
-  .score-area .verovio-score { filter: invert(1) hue-rotate(180deg); }
+  #scoreArea svg { max-width: 100%; height: auto; }
 
   .placeholder {
     text-align: center;
     color: var(--muted);
-    font-size: 11px;
-    letter-spacing: 0.15em;
-    line-height: 2;
-    text-transform: uppercase;
+    font-size: 0.9rem;
+    line-height: 1.8;
+  }
+  .placeholder .big { font-size: 30px; display: block; margin-bottom: 8px; opacity: 0.35; }
+
+  .render-status {
+    padding: 8px 16px 12px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    background: #fffdfa;
+    border-radius: 0 0 8px 8px;
+  }
+  .render-status.ok  { color: var(--ok); }
+  .render-status.err { color: var(--bad); }
+
+  /* Timeline panel */
+  .timeline-panel { padding: 16px; display: grid; gap: 10px; }
+
+  .panel-heading { display: grid; gap: 3px; }
+  .panel-heading h2 { margin: 0; font-size: 1rem; }
+  .panel-heading span { color: var(--muted); font-size: 0.84rem; }
+
+  .timeline-area { display: grid; gap: 6px; }
+
+  .timeline-row {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
   }
 
-  .placeholder .big { font-size: 28px; display: block; margin-bottom: 12px; opacity: 0.3; }
-
-  .status {
-    font-size: 10px;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    padding: 8px 0;
-    min-height: 28px;
+  .timeline-label {
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: var(--muted);
+    text-align: right;
   }
 
-  .status.ok { color: #2a7a2a; }
-  .status.err { color: #c00; }
-  .status.info { color: #555; }
+  .timeline-track {
+    position: relative;
+    height: 34px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fffdfa;
+    overflow: hidden;
+  }
+
+  .timeline-block {
+    position: absolute;
+    top: 4px; bottom: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fff;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 0 3px;
+    min-width: 2px;
+  }
+
+  /* Details */
+  details.panel { overflow: hidden; }
+  details.panel summary {
+    padding: 12px 16px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    color: var(--muted);
+  }
+  details.panel summary:hover { color: var(--ink); }
+  .details-body { padding: 0 16px 16px; }
 
   .events-grid {
     display: grid;
@@ -303,164 +412,356 @@
   }
 
   .event-chip {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    font-size: 10px;
-    padding: 5px 8px;
-    line-height: 1.6;
-    letter-spacing: 0.05em;
+    background: #fbfaf6;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    padding: 6px 8px;
+    line-height: 1.5;
   }
+  .event-chip .pitch { color: var(--accent); font-weight: 700; }
+  .event-chip .dur   { color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.7rem; }
 
-  .event-chip .pitch { color: var(--accent); }
-  .event-chip .dur { color: var(--accent2); }
-
-  details {
-    border: 1px solid var(--border);
-  }
-
-  summary {
-    padding: 10px 14px;
-    font-size: 10px;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
+  #meiPre {
+    font-size: 0.72rem;
     color: var(--muted);
+    white-space: pre-wrap;
+    overflow: auto;
+    max-height: 220px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    margin: 0;
+  }
+
+  .hint { font-size: 0.8rem; color: var(--muted); font-weight: 400; }
+
+  /* Cycle pulse — fills clockwise once per cycle, flashes at each boundary */
+  .cycle-pulse {
+    position: relative;
+    width: 62px; height: 62px;
+    border-radius: 999px;
+    display: grid; place-items: center;
+    background: conic-gradient(var(--accent) 0%, #ece8de 0%);
+    flex-shrink: 0;
+  }
+  .cycle-pulse::after {
+    content: ""; position: absolute; inset: 6px;
+    background: var(--panel); border-radius: 999px;
+  }
+  .cycle-pulse span {
+    position: relative; z-index: 1;
+    font-weight: 800; font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .cycle-pulse.flash { animation: pulseflash 0.3s ease-out; }
+  @keyframes pulseflash {
+    0%   { box-shadow: 0 0 0 0 rgba(20, 108, 148, 0.55); }
+    100% { box-shadow: 0 0 0 20px rgba(20, 108, 148, 0); }
+  }
+
+  /* Graphic score */
+  #graphicArea { padding: 14px 16px 16px; display: grid; gap: 8px; }
+  .graphic-row {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 8px; align-items: center;
+  }
+  .graphic-label { font-size: 0.8rem; font-weight: 800; color: var(--muted); text-align: right; }
+  .graphic-track {
+    position: relative; height: 46px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background-color: #fffdfa;
+    background-image: linear-gradient(to right, rgba(20, 108, 148, 0.10) 1px, transparent 1px);
+    overflow: hidden;
+  }
+  .graphic-block {
+    position: absolute; top: 6px; bottom: 6px;
+    border-radius: 5px;
+    color: #fff; font-size: 0.72rem; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; white-space: nowrap; padding: 0 4px;
+    min-width: 2px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+  }
+  .graphic-playhead {
+    position: absolute; top: 0; bottom: 0; width: 2px;
+    background: var(--bad); opacity: 0.7;
+    left: 0; pointer-events: none;
+  }
+
+  /* ── Dark theme ─────────────────────────────────────────────────────────── */
+  body.dark {
+    --bg: #14171b;
+    --panel: #1d2126;
+    --ink: #ecebe7;
+    --muted: #8b949e;
+    --line: #33383f;
+    --accent: #4ba3c7;
+    --accent-2: #a97ffc;
+    --warn: #d98e2b;
+    --bad: #e05c5c;
+    --ok: #3fae82;
+    --shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    --pulse-rest: #33383f;
+    color-scheme: dark;
+  }
+  body.dark #scoreArea,
+  body.dark .render-status,
+  body.dark .graphic-track,
+  body.dark .mini-track { background: #23272d; }
+  /* direct child only — Verovio nests <svg> inside <svg>, and the filter on
+     both would invert twice and cancel out */
+  body.dark #scoreArea > svg { filter: invert(1) hue-rotate(180deg); }
+  body.dark select, body.dark input[type="number"], body.dark input[type="text"] {
+    background: #23272d; color: var(--ink);
+  }
+  body.dark .preset-btn { background: #23272d; }
+  body.dark .actions button.secondary,
+  body.dark .cycle-controls button { background: #2b3138; color: var(--ink); }
+  body.dark .segmented { background: #23272d; }
+  body.dark .bridge-panel { background: #1a1e23; }
+  body.dark .event-chip { background: #23272d; }
+  body.dark .status-pill { background: rgba(29, 33, 38, 0.7); }
+
+  /* ── Performer mode: only the score column, big ────────────────────────── */
+  body.performer .controls,
+  body.performer header,
+  body.performer #eventDetails,
+  body.performer #meiDetails { display: none !important; }
+  body.performer .workspace { grid-template-columns: 1fr; margin-top: 8px; }
+  body.performer main { width: min(1600px, calc(100% - 24px)); padding: 8px 0 16px; }
+  body.performer #scoreArea { min-height: 46vh; }
+  body.performer #scoreArea > svg { width: 96%; height: auto; max-height: 62vh; }
+  body.performer .cycle-pulse { width: 92px; height: 92px; }
+  body.performer .cycle-pulse span { font-size: 1.6rem; }
+  body.performer .score-header { padding: 18px 22px; }
+  body.performer .score-title h2 { font-size: 1.35rem; }
+  body.performer .score-title span { font-size: 1.05rem; }
+
+  /* Floating buttons (always visible, discreet) */
+  .float-controls {
+    position: fixed;
+    right: 14px; bottom: 14px;
+    display: flex; gap: 8px;
+    z-index: 50;
+  }
+  .float-controls button {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    font: inherit; font-size: 0.85rem; font-weight: 700;
+    padding: 9px 15px;
     cursor: pointer;
-    user-select: none;
+    box-shadow: var(--shadow);
   }
-
-  summary:hover { color: var(--text); }
-
-  .details-body {
-    padding: 14px;
-    border-top: 1px solid var(--border);
-  }
-
-  .spinner {
-    width: 20px; height: 20px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  footer {
-    margin-top: auto;
-    font-size: 10px;
-    color: var(--muted);
-    letter-spacing: 0.1em;
-    border-top: 1px solid var(--border);
-    padding-top: 14px;
-  }
+  .float-controls button:hover { color: var(--ink); border-color: var(--accent); }
 </style>
 </head>
 <body>
+<main>
+  <header>
+    <div>
+      <h1>Strudel → Score</h1>
+      <p class="subtitle">TidalCycles mini-notation to live notation: exact fractions, structural tuplets, ties, Euclidean rhythms — rendered as MEI by Verovio.</p>
+    </div>
+    <div class="status-pill" aria-live="polite"><span class="status-dot" id="verovioDot"></span><span id="verovioStatus">Initialising Verovio…</span></div>
+  </header>
 
-<header>
-  <h1>Strudel → Score</h1>
-  <span class="subtitle">mini-notation · verovio · MEI</span>
-</header>
+  <section class="workspace">
 
-<div class="input-row">
-  <input class="pattern-input" id="patInput" type="text"
-    value="[c4*5 c3!4]" placeholder="Enter Strudel mini-notation…" />
-  <button class="convert-btn" id="convertBtn">Convert</button>
+    <!-- ── Left: controls sidebar ─────────────────────────────────────── -->
+    <aside class="panel controls">
+
+      <label class="field">
+        Live lines <span class="hint">flag a line to send it to the score — updates as you type</span>
+        <div class="live-lines" id="liveLines"></div>
+      </label>
+
+      <label class="field" for="patInput">
+        Scratch pattern
+        <input type="text" id="patInput" class="mono" value="[c5*5 c4!4]" placeholder="Enter mini-notation…">
+      </label>
+
+      <div class="actions">
+        <button id="convertBtn" type="button">Render</button>
+        <button id="playBtn" class="secondary" type="button">▶ Play</button>
+        <button id="stopBtn" class="secondary" type="button" disabled>■ Stop</button>
+        <button id="syncBtn" class="secondary" type="button">↺ Sync</button>
+      </div>
+
+      <div class="cycle-controls">
+        <button id="prevCycle" type="button" aria-label="Previous cycle">&lt;</button>
+        <label class="field">
+          Cycle
+          <input id="cycleIndex" type="number" min="0" step="1" value="0">
+        </label>
+        <button id="nextCycle" type="button" aria-label="Next cycle">&gt;</button>
+      </div>
+
+      <div class="control-grid">
+        <label class="field">
+          CPS
+          <input id="cpsInput" type="number" min="0.001" step="0.0001" value="0.5625">
+        </label>
+        <label class="field">
+          Cycle length
+          <input id="cycleLength" type="text" value="1.778 s" readonly>
+        </label>
+      </div>
+
+      <div class="control-grid">
+        <label class="field">
+          Cycle view
+          <select id="cyclesOpt">
+            <option value="1" selected>Current cycle</option>
+            <option value="4">Next 4 cycles</option>
+            <option value="8">Next 8 cycles</option>
+          </select>
+        </label>
+        <label class="field">
+          Mode
+          <select id="modeOpt">
+            <option value="pitch" selected>Pitch</option>
+            <option value="rhythm">Rhythm</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="control-grid">
+        <label class="field">
+          Pitch input
+          <select id="pitchInputOpt">
+            <option value="name" selected>Note names (c4)</option>
+            <option value="midi">Numbers (60 = c5, Tidal)</option>
+          </select>
+        </label>
+        <label class="field">
+          Clef
+          <select id="clefOpt">
+            <option value="treble" selected>Treble</option>
+            <option value="bass">Bass</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="control-grid">
+        <label class="field">
+          Score view
+          <select id="viewOpt">
+            <option value="staff" selected>Staff notation</option>
+            <option value="graphic">Graphic score</option>
+            <option value="both">Both</option>
+          </select>
+        </label>
+        <label class="field">
+          Clock
+          <input id="clockSource" type="text" value="internal" readonly>
+        </label>
+      </div>
+
+      <label class="field">
+        Presets
+        <div class="presets">
+          <button class="preset-btn" data-p="[c5*5 c4!4]" data-mode="pitch">mini notation!</button>
+          <button class="preset-btn" data-p="c5 [e5 g5] a5 b5" data-mode="pitch">chord tones</button>
+          <button class="preset-btn" data-p="c5 d5 e5 f5 g5 a5 b5 c6" data-mode="pitch">scale</button>
+          <button class="preset-btn" data-p="[c5 e5 g5] [f5 a5 c6] [g5 b5 d6] c6" data-mode="pitch">I–IV–V–I</button>
+          <button class="preset-btn" data-p="c5@3 r e5 [g5 f5] e5@2" data-mode="pitch">elongation @</button>
+          <button class="preset-btn" data-p="c5@5 e5@3" data-mode="pitch">ties</button>
+          <button class="preset-btn" data-p="c5*3 e5 g5" data-mode="pitch">tuplet *</button>
+          <button class="preset-btn" data-p="c5!3 e5" data-mode="pitch">replicate !</button>
+          <button class="preset-btn" data-p="[c5 d5 e5 f5] [g5 a5 b5 c6]" data-mode="pitch">subdivisions</button>
+          <button class="preset-btn" data-p="bd sn hh hh" data-mode="rhythm">basic beat</button>
+          <button class="preset-btn" data-p="bd sn [hh hh hh] sn" data-mode="rhythm">triplet hat</button>
+          <button class="preset-btn" data-p="bd ! sn ~" data-mode="rhythm">bare !</button>
+          <button class="preset-btn" data-p="<bd sn hh>" data-mode="rhythm" data-cycles="4">&lt;&gt; alternation</button>
+          <button class="preset-btn" data-p="c5*4, e6*8" data-mode="pitch">, layers</button>
+          <button class="preset-btn" data-p="bd(3,8)" data-mode="rhythm">euclid (3,8)</button>
+          <button class="preset-btn" data-p="bd(5,8) sn(3,8)" data-mode="rhythm">euclid 5+3</button>
+          <button class="preset-btn" data-p="bd?0.9 sn? hh?0.2 hh" data-mode="rhythm">degrade ?</button>
+        </div>
+      </label>
+
+      <div class="bridge-panel">
+        <div class="bridge-status-row">
+          <span class="bridge-status-left"><span id="bridgeDot" class="live-dot"></span><span id="bridgeStatus">Bridge idle</span></span>
+          <span id="bridgeLastUpdate">manual</span>
+        </div>
+        <label class="field">
+          Bridge URL
+          <input id="bridgeUrlInput" type="text" value="ws://127.0.0.1:8766">
+        </label>
+        <div class="actions">
+          <button id="bridgeConnectBtn" class="secondary" type="button">Connect bridge</button>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ── Right: score column ────────────────────────────────────────── -->
+    <section class="score-wrap">
+
+      <div class="panel" id="staffPanel">
+        <div class="score-header">
+          <div class="score-title">
+            <h2 id="scoreTitle">no pattern · cycle 0</h2>
+            <span id="patternLabel"></span>
+          </div>
+          <div class="cycle-pulse" id="cyclePulse" title="Cycle progress"><span id="cyclePulseNum">0</span></div>
+        </div>
+        <div id="scoreArea" aria-label="Rendered score">
+          <div class="placeholder">
+            <span class="big">𝄞</span>
+            Flag a live line or enter a scratch pattern and press Render
+          </div>
+        </div>
+        <div class="render-status" id="status">Initialising Verovio…</div>
+      </div>
+
+      <div class="panel" id="graphicPanel" style="display:none">
+        <div class="score-header">
+          <div class="score-title">
+            <h2>Graphic Score</h2>
+            <span id="graphicSourceLabel">from typed patterns</span>
+          </div>
+          <div class="status-pill"><span class="status-dot" id="oscDot"></span><span id="oscStatus">no Tidal events yet</span></div>
+        </div>
+        <div id="graphicArea"><span class="hint">No events — flag a line or play Tidal.</span></div>
+      </div>
+
+      <div class="panel timeline-panel">
+        <div class="panel-heading">
+          <h2>Exact Cycle Timeline</h2>
+          <span>Parser output before notation simplification — proportional to real time.</span>
+        </div>
+        <div id="timelineArea" class="timeline-area"><span class="hint">Nothing rendered yet.</span></div>
+      </div>
+
+      <details class="panel" id="eventDetails" style="display:none">
+        <summary>Parsed events</summary>
+        <div class="details-body">
+          <div class="events-grid" id="eventsGrid"></div>
+        </div>
+      </details>
+
+      <details class="panel" id="meiDetails" style="display:none">
+        <summary>MEI source</summary>
+        <div class="details-body">
+          <pre id="meiPre"></pre>
+        </div>
+      </details>
+
+    </section>
+  </section>
+</main>
+
+<div class="float-controls">
+  <button id="performerBtn" type="button" title="Hide all controls — score only">🎭 Performer</button>
+  <button id="themeBtn" type="button" title="Toggle light/dark theme">◐ Dark</button>
 </div>
-
-<div class="presets">
-  <span class="presets-label">Presets</span>
-  <button class="preset-btn" data-p="[c4*5 c3!4]" data-mode="pitch">mini notation wonders!</button>
-  <button class="preset-btn" data-p="c4 [e4 g4] a4 b4" data-mode="pitch">basic chord tones</button>
-  <button class="preset-btn" data-p="c4 d4 e4 f4 g4 a4 b4 c5" data-mode="pitch">scale</button>
-  <button class="preset-btn" data-p="[c4 e4 g4] [f4 a4 c5] [g4 b4 d5] c5" data-mode="pitch">I–IV–V–I</button>
-  <button class="preset-btn" data-p="c4@3 r e4 [g4 f4] e4@2" data-mode="pitch">elongation @</button>
-  <button class="preset-btn" data-p="c4*3 e4 g4" data-mode="pitch">speed *</button>
-  <button class="preset-btn" data-p="c4!3 e4" data-mode="pitch">replicate !</button>
-  <button class="preset-btn" data-p="c4 ~ e4 ~ g4 ~ b4 ~" data-mode="pitch">held notes</button>
-  <button class="preset-btn" data-p="[c4 d4 e4 f4] [g4 a4 b4 c5]" data-mode="pitch">subdivisions</button>
-  <button class="preset-btn" data-p="bd sn hh hh" data-mode="rhythm">rhythm: basic beat</button>
-  <button class="preset-btn" data-p="bd sn [hh hh hh] sn" data-mode="rhythm">rhythm: triplet hat</button>
-  <button class="preset-btn" data-p="bd ! sn ~" data-mode="rhythm">bare ! repeat</button>
-  <button class="preset-btn" data-p="<bd sn hh>" data-mode="rhythm" data-cycles="4">&lt;&gt; cycle alternation</button>
-  <button class="preset-btn" data-p="c4*4, e5*8" data-mode="pitch">, parallel layers</button>
-</div>
-
-<div class="live-panel">
-  <div class="live-panel-header">
-    <span class="live-panel-title">Live Lines</span>
-    <span class="live-panel-hint">flag a line to send it to the score — updates as you type</span>
-  </div>
-  <div class="bridge-row">
-    <label for="bridgeUrlInput">Bridge</label>
-    <input type="text" id="bridgeUrlInput" value="ws://127.0.0.1:8766" placeholder="ws://127.0.0.1:8766">
-    <button class="preset-btn" id="bridgeConnectBtn">Connect</button>
-    <span class="status info" id="bridgeStatus" style="padding:0">Not connected</span>
-  </div>
-  <div class="live-lines" id="liveLines"></div>
-</div>
-
-<div class="options-row">
-  <div class="option">
-    <label for="cyclesOpt">Cycles</label>
-    <select id="cyclesOpt">
-      <option value="1">1</option>
-      <option value="2" selected>2</option>
-      <option value="4">4</option>
-    </select>
-  </div>
-  <div class="option">
-    <label for="modeOpt">Mode</label>
-    <select id="modeOpt">
-      <option value="pitch" selected>Pitch</option>
-      <option value="rhythm">Rhythm</option>
-    </select>
-  </div>
-  <div class="option">
-    <label for="pitchInputOpt">Pitch input</label>
-    <select id="pitchInputOpt">
-      <option value="name" selected>Note names (c4)</option>
-      <option value="midi">Numbers (MIDI, n "60 62")</option>
-    </select>
-  </div>
-  <div class="option">
-    <label for="clefOpt">Clef</label>
-    <select id="clefOpt">
-      <option value="treble" selected>Treble</option>
-      <option value="bass">Bass</option>
-    </select>
-  </div>
-</div>
-
-<div class="status info" id="status">Initialising Verovio…</div>
-
-<div class="score-area" id="scoreArea">
-  <div class="placeholder">
-    <span class="big">𝄞</span>
-    Enter a pattern above and press Convert
-  </div>
-</div>
-
-<details id="eventDetails" style="display:none">
-  <summary>Parsed events</summary>
-  <div class="details-body">
-    <div class="events-grid" id="eventsGrid"></div>
-  </div>
-</details>
-
-<details id="meiDetails" style="display:none">
-  <summary>MEI source</summary>
-  <div class="details-body">
-    <pre id="meiPre" style="font-size:10px;color:var(--muted);white-space:pre-wrap;overflow:auto;max-height:200px"></pre>
-  </div>
-</details>
-
-<footer>
-  Strudel mini-notation parser · Verovio WASM 4.2 · No server required
-</footer>
 
 <script>
 // ─── 1. Strudel mini-notation parser ─────────────────────────────────────────
-// Handles: sequences, sub-cycles [], elongation @N, speed *N, replicate !N, rests r/~
 
 class Fraction {
   constructor(n, d = 1) { this.n = n; this.d = d; this.reduce(); }
@@ -470,6 +771,7 @@ class Fraction {
     return this;
   }
   add(f) { return new Fraction(this.n * f.d + f.n * this.d, this.d * f.d); }
+  sub(f) { return new Fraction(this.n * f.d - f.n * this.d, this.d * f.d); }
   mul(f) { return new Fraction(this.n * f.n, this.d * f.d); }
   toFloat() { return this.n / this.d; }
   toString() { return `${this.n}/${this.d}`; }
@@ -477,60 +779,105 @@ class Fraction {
 
 function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
 
-// Tuplet helpers: a group of N equal-weight children is "clean" binary
-// notation only when N is a power of two (1, 2, 4, 8...). Any other N
-// needs a tuplet bracket against the nearest lower power of two.
 function isPow2(n) { return n > 0 && (n & (n - 1)) === 0; }
 function lowerPow2(n) { let p = 1; while (p * 2 <= n) p *= 2; return p; }
 
-// Resolves the two cycle-dependent node types into whatever they should
-// actually be on a given cycle:
-//  - 'alt' (<a b c>) picks one alternative per cycle (0 -> a, 1 -> b,
-//    2 -> c, 3 -> a again...).
-//  - 'slow' (a/3) only "plays" once every N cycles; on the other cycles
-//    it's a rest, same slot length.
-// The loop lets either one wrap the other in any order.
-function resolveCycleVariant(el, cycleIndex) {
-  while (el.type === 'alt' || el.type === 'slow') {
+// Bjorklund algorithm — distributes k pulses as evenly as possible over n steps,
+// rotated so the pattern starts with a hit (matching TidalCycles convention).
+function euclidPattern(k, n) {
+  if (k <= 0) return Array(n).fill(false);
+  if (k >= n) return Array(n).fill(true);
+  let ones  = Array.from({length: k},     () => [true]);
+  let zeros = Array.from({length: n - k}, () => [false]);
+  while (zeros.length > 1 && ones.length > 0) {
+    const count = Math.min(ones.length, zeros.length);
+    const [shorter, longer] = ones.length <= zeros.length ? [ones, zeros] : [zeros, ones];
+    const merged = Array.from({length: count}, (_, i) => [...longer[i], ...shorter[i]]);
+    const remaining = longer.slice(count);
+    ones = merged; zeros = remaining;
+  }
+  const flat = [...ones, ...zeros].flat();
+  const firstHit = flat.indexOf(true);
+  return firstHit > 0 ? [...flat.slice(firstHit), ...flat.slice(0, firstHit)] : flat;
+}
+
+// Resolves cycle-dependent node types at render time, returning both the
+// resolved element AND the cycle index its subtree should be evaluated with:
+// - 'alt' (<a b c>) picks one alternative per cycle index
+// - 'slow' (a/3) plays on cycle 0,3,6... and rests on others
+// - 'cycled' remaps the cycle index for its subtree (used by function
+//   transforms like `fast 2`, where the second half of a measure is
+//   "cycle c*2+1" as far as alternation/slow are concerned)
+function resolveNode(el, cycleIndex) {
+  while (el.type === 'alt' || el.type === 'slow' || el.type === 'cycled') {
     if (el.type === 'alt') {
       const len = el.alternatives.length;
       const idx = ((cycleIndex % len) + len) % len;
       el = el.alternatives[idx];
-    } else {
+    } else if (el.type === 'slow') {
       const phase = ((cycleIndex % el.n) + el.n) % el.n;
       el = phase === 0 ? el.inner : { type: 'leaf', value: '~', weight: 1 };
+    } else {
+      cycleIndex = el.map(cycleIndex);
+      el = el.inner;
     }
   }
-  return el;
+  return { el, c: cycleIndex };
 }
 
-// Tokenise: splits on spaces, brackets, angle brackets and commas;
-// * ! @ may be attached to a token or stand alone after a bracket/group.
+// Tokenises a mini-notation string. Commas inside parentheses (Euclidean
+// syntax: bd(3,8)) are NOT treated as layer separators — only top-level
+// commas split into parallel layers.
 function tokenise(src) {
-  return src.trim()
-    .replace(/\[/g, ' [ ')
-    .replace(/\]/g, ' ] ')
-    .replace(/</g, ' < ')
-    .replace(/>/g, ' > ')
-    .replace(/,/g, ' , ')
-    .split(/\s+/)
-    .filter(Boolean);
+  const result = [];
+  let cur = '', depth = 0;
+  for (const ch of src.trim()) {
+    if (ch === '(') { depth++; cur += ch; }
+    else if (ch === ')') { depth = Math.max(0, depth - 1); cur += ch; }
+    else if (depth > 0) { cur += ch; }
+    else if (/\s/.test(ch)) { if (cur) { result.push(cur); cur = ''; } }
+    else if (ch === '[' || ch === ']' || ch === '<' || ch === '>') {
+      if (cur) { result.push(cur); cur = ''; }
+      result.push(ch);
+    } else if (ch === ',') {
+      if (cur) { result.push(cur); cur = ''; }
+      result.push(',');
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur) result.push(cur);
+  return result;
 }
 
-// Parse modifier suffix from a raw token: c4*3, c4!2, c4@3, c4/2 etc.
-// Returns { base, op, n } where op is '*', '!', '@', '/', or null
+// Parse modifier suffix: c4*3  c4!2  c4@3  c4/2
 function parseMod(tok) {
   const m = tok.match(/^(.*?)([*!@/])(\d+(?:\.\d+)?)$/);
   if (!m) return { base: tok, op: null, n: 1 };
   return { base: m[1], op: m[2], n: parseFloat(m[3]) };
 }
 
-// Parses a sequence up to `closeTok` (or end of input at the top level).
-// Returns `{ layers, pos }`: normally `layers` has one entry (the
-// sequence itself), but a "," found at this nesting level splits the
-// whole scope into N parallel layers (e.g. "bd*4, hh*8" — two voices
-// playing simultaneously for the full pattern), one per comma-separated
-// part.
+// Split a trailing degrade suffix off a token: bd? → 50%, bd?0.2 → 20%.
+// Returned rest may still carry other modifiers (bd*4? → rest "bd*4").
+function parseDegrade(tok) {
+  const m = tok.match(/^(.+?)\?(\d*\.?\d+)?$/);
+  if (!m) return { rest: tok, prob: 1 };
+  const prob = m[2] !== undefined ? Math.min(1, Math.max(0, parseFloat(m[2]))) : 0.5;
+  return { rest: m[1], prob };
+}
+
+// Tag every leaf under `el` as probabilistic (groups recurse so bd*4?
+// marks all four copies).
+function applyProb(el, prob) {
+  if (prob >= 1) return el;
+  if (el.type === 'leaf') return { ...el, prob };
+  if (el.children) return { ...el, children: el.children.map(c => applyProb(c, prob)) };
+  if (el.inner) return { ...el, inner: applyProb(el.inner, prob) };
+  return el;
+}
+
+// Recursive descent parser. Returns { layers, pos }.
+// Top-level commas create parallel layers (each becomes a MEI <layer>).
 function parseTokens(tokens, pos, closeTok = null) {
   const layers = [[]];
   const current = () => layers[layers.length - 1];
@@ -539,11 +886,7 @@ function parseTokens(tokens, pos, closeTok = null) {
     const tok = tokens[pos];
     if (tok === closeTok) { pos++; break; }
 
-    if (tok === ',') {
-      pos++;
-      layers.push([]);
-      continue;
-    }
+    if (tok === ',') { pos++; layers.push([]); continue; }
 
     if (tok === '[') {
       pos++;
@@ -554,21 +897,15 @@ function parseTokens(tokens, pos, closeTok = null) {
         const m = tokens[pos].match(/^([*!@/])(\d+(?:\.\d+)?)$/);
         if (m) { op = m[1]; n = parseFloat(m[2]); pos++; }
       }
-      // Parallel layers (",") are only rendered as true simultaneous
-      // voices at a pattern's top level (see patternsToMEI). Nested
-      // inside a bracket, they're flattened back into one sequence so
-      // no events are silently dropped — a known scope limit, not a bug.
       const subElements = sub.layers.length > 1 ? [].concat(...sub.layers) : sub.layers[0];
       const weight = op === '@' ? n : 1;
-      const repeat = op === '!' ? n : 1;
-      const speed  = op === '*' ? n : 1;
       if (op === '!' || op === null) {
-        for (let i = 0; i < Math.round(repeat); i++)
+        const repeat = op === '!' ? Math.round(n) : 1;
+        for (let i = 0; i < repeat; i++)
           current().push({ type: 'group', children: subElements, weight });
       } else if (op === '*') {
         const repeated = [];
-        for (let i = 0; i < Math.round(speed); i++)
-          repeated.push(...subElements);
+        for (let i = 0; i < Math.round(n); i++) repeated.push(...subElements);
         current().push({ type: 'group', children: repeated, weight: 1 });
       } else if (op === '/') {
         current().push({ type: 'slow', inner: { type: 'group', children: subElements, weight: 1 }, n: Math.round(n), weight: 1 });
@@ -593,88 +930,250 @@ function parseTokens(tokens, pos, closeTok = null) {
     }
 
     if (tok === '!') {
-      // Bare "!" repeats the previous element in this sequence:
-      // "bd ! sn" == "bd bd sn". No-op if nothing precedes it.
       pos++;
       const cur = current();
       if (cur.length) cur.push(cur[cur.length - 1]);
       continue;
     }
 
-    const { base, op, n } = parseMod(tok);
+    // Euclidean rhythm: value(k,n) or value(k,n,rotation)
+    const eucM = tok.match(/^(.+?)\((\d+),(\d+)(?:,(\d+))?\)$/);
+    if (eucM) {
+      pos++;
+      let hits = euclidPattern(parseInt(eucM[2]), parseInt(eucM[3]));
+      if (eucM[4]) {
+        const r = parseInt(eucM[4]) % hits.length;
+        hits = [...hits.slice(r), ...hits.slice(0, r)];
+      }
+      const children = hits.map(hit => ({ type: 'leaf', value: hit ? eucM[1] : '~', weight: 1 }));
+      current().push({ type: 'group', children, weight: 1 });
+      continue;
+    }
+
+    // Standalone degrade token (e.g. from "[bd sn]?0.3" — the tokeniser
+    // splits it off after the closing bracket): applies to the previous
+    // element in this sequence.
+    const standalone = tok.match(/^\?(\d*\.?\d+)?$/);
+    if (standalone) {
+      pos++;
+      const cur = current();
+      if (cur.length) {
+        const prob = standalone[1] !== undefined
+          ? Math.min(1, Math.max(0, parseFloat(standalone[1]))) : 0.5;
+        cur[cur.length - 1] = applyProb(cur[cur.length - 1], prob);
+      }
+      continue;
+    }
+
+    // Degrade is stripped first so it composes with other modifiers:
+    // bd*4?0.2 → four copies, each 20% likely.
+    const { rest, prob } = parseDegrade(tok);
+    const { base, op, n } = parseMod(rest);
     pos++;
+    const push = el => current().push(applyProb(el, prob));
     if (op === '@') {
-      current().push({ type: 'leaf', value: base, weight: n });
+      push({ type: 'leaf', value: base, weight: n });
     } else if (op === '!') {
-      // replicate: insert n copies, each with weight 1
       for (let i = 0; i < Math.round(n); i++)
-        current().push({ type: 'leaf', value: base, weight: 1 });
+        push({ type: 'leaf', value: base, weight: 1 });
     } else if (op === '*') {
-      // speed up: n equal copies packed into one slot (weight 1 total)
-      // model as a group of n children
       const children = [];
       for (let i = 0; i < Math.round(n); i++)
         children.push({ type: 'leaf', value: base, weight: 1 });
-      current().push({ type: 'group', children, weight: 1 });
+      push({ type: 'group', children, weight: 1 });
     } else if (op === '/') {
-      // slow: plays once every n cycles, rests on the others
-      current().push({ type: 'slow', inner: { type: 'leaf', value: base, weight: 1 }, n: Math.round(n), weight: 1 });
+      push({ type: 'slow', inner: { type: 'leaf', value: base, weight: 1 }, n: Math.round(n), weight: 1 });
     } else {
-      current().push({ type: 'leaf', value: base, weight: 1 });
+      push({ type: 'leaf', value: base, weight: 1 });
     }
   }
   return { layers, pos };
 }
 
-// Flattening for the debug "parsed events" panel only — pure (start,end)
-// timing per leaf, no notation concerns. MEI generation (below) walks the
-// same tree separately so nested tuplets can nest correctly.
+// ─── 1b. Tidal function chains (rev, fast, every, jux…) ─────────────────────
+// Parses the Haskell-side text between `dN $` and the quoted pattern, e.g.
+// "every 4 rev $ fast 2 $ jux rev". Only deterministic structural transforms
+// are translated — random functions (sometimes, irand…) and effects (cut,
+// gain…) can't honestly live on a staff; the graphic score shows those.
+
+const SUPPORTED_FNS = new Set(['rev', 'palindrome', 'fast', 'density', 'ply', 'every', 'repeatCycles', 'jux', 'iter']);
+
+// One segment ("every 4 rev") → descriptor {fn, n?, inner?} or {fn:'?', raw}.
+// Parentheses act as grouping only, so "every 2 (jux rev)" parses like
+// "every 2 jux rev".
+function parseChainSegment(seg) {
+  const words = seg.replace(/[()]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const [head, ...rest] = words;
+  if (!SUPPORTED_FNS.has(head)) return { fn: '?', raw: seg.trim() };
+
+  if (head === 'rev' || head === 'palindrome') return { fn: head, raw: seg.trim() };
+
+  if (head === 'fast' || head === 'density' || head === 'ply' || head === 'iter' || head === 'repeatCycles') {
+    const n = parseInt(rest[0]);
+    if (!Number.isInteger(n) || n < 1) return { fn: '?', raw: seg.trim() };
+    return { fn: head === 'density' ? 'fast' : head, n, raw: seg.trim() };
+  }
+
+  if (head === 'every') {
+    const n = parseInt(rest[0]);
+    const inner = parseChainSegment(rest.slice(1).join(' '));
+    if (!Number.isInteger(n) || n < 1 || !inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'every', n, inner, raw: seg.trim() };
+  }
+
+  if (head === 'jux') {
+    const inner = parseChainSegment(rest.join(' '));
+    if (!inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'jux', inner, raw: seg.trim() };
+  }
+
+  return { fn: '?', raw: seg.trim() };
+}
+
+function parseChain(text) {
+  if (!text || !text.trim()) return [];
+  return text.split('$').map(parseChainSegment).filter(Boolean);
+}
+
+// Deep-reverse a sequence: children order flips at every level. Alternation
+// keeps its per-cycle pick order (rev reverses time, not the cycle picks).
+function revElements(elements) {
+  return elements.slice().reverse().map(el => {
+    if (el.children) return { ...el, children: revElements(el.children) };
+    if (el.inner)    return { ...el, inner: revElements([el.inner])[0] };
+    return el;
+  });
+}
+
+function plyElements(elements, n) {
+  return elements.map(el => {
+    if (el.type === 'leaf') {
+      const children = Array.from({ length: n }, () => ({ ...el, weight: 1 }));
+      return { type: 'group', children, weight: el.weight };
+    }
+    if (el.children) return { ...el, children: plyElements(el.children, n) };
+    if (el.inner)    return { ...el, inner: plyElements([el.inner], n)[0] };
+    return el;
+  });
+}
+
+// Rotate the top-level sequence so it starts (c%n)/n of a cycle later —
+// exact when that lands on an element boundary, else nearest boundary
+// (flagged so the status line reports it as approximated).
+let iterApproximated = 0;
+function iterElements(elements, n, cycleIndex) {
+  const k = ((cycleIndex % n) + n) % n;
+  if (k === 0 || !elements.length) return elements;
+  const W = elements.reduce((s, e) => s + e.weight, 0);
+  const target = W * k / n;
+  let acc = 0, best = 0, bestDiff = Infinity;
+  for (let i = 0; i <= elements.length; i++) {
+    const diff = Math.abs(acc - target);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+    if (i < elements.length) acc += elements[i].weight;
+  }
+  if (bestDiff > 1e-9) iterApproximated++;
+  return [...elements.slice(best), ...elements.slice(0, best)];
+}
+
+// Apply one transform to a single layer (a sequence of elements).
+function applyTransform(elements, t, cycleIndex) {
+  switch (t.fn) {
+    case 'rev':        return revElements(elements);
+    case 'palindrome': return ((cycleIndex % 2) + 2) % 2 === 1 ? revElements(elements) : elements;
+    case 'ply':        return plyElements(elements, t.n);
+    case 'iter':       return iterElements(elements, t.n, cycleIndex);
+    case 'fast': {
+      // N copies squeezed into one cycle; copy k sees cycle c*N+k so that
+      // alternation (<a b>) and slow (a/2) keep advancing inside the measure.
+      const children = [];
+      for (let k = 0; k < t.n; k++) {
+        const kk = k;
+        children.push({
+          type: 'cycled', weight: 1,
+          map: c => c * t.n + kk,
+          inner: { type: 'group', children: elements, weight: 1 }
+        });
+      }
+      return [{ type: 'group', children, weight: 1 }];
+    }
+    case 'repeatCycles':
+      return [{
+        type: 'cycled', weight: 1,
+        map: c => Math.floor(c / t.n),
+        inner: { type: 'group', children: elements, weight: 1 }
+      }];
+    default: return elements; // '?' and anything unknown: untranslated
+  }
+}
+
+// One transform at the layer-list level. jux and every live here (not in
+// applyTransform) because they change the NUMBER of layers or wrap other
+// layer-level transforms — this is what lets "every 2 (jux rev)" nest:
+// on matching cycles the jux fires and the staff grows a second voice.
+function applyTransformLayers(layers, t, cycleIndex) {
+  if (t.fn === 'jux')
+    return layers.flatMap(layer => [layer, ...applyTransformLayers([layer], t.inner, cycleIndex)]);
+  if (t.fn === 'every')
+    return ((cycleIndex % t.n) + t.n) % t.n === 0
+      ? applyTransformLayers(layers, t.inner, cycleIndex) : layers;
+  return layers.map(layer => applyTransform(layer, t, cycleIndex));
+}
+
+// Apply a whole chain to a pattern's layers. Tidal composes right-to-left
+// (the segment nearest the quoted pattern applies first).
+function applyChain(layers, chain, cycleIndex) {
+  if (!chain || !chain.length) return layers;
+  let out = layers;
+  for (let i = chain.length - 1; i >= 0; i--)
+    out = applyTransformLayers(out, chain[i], cycleIndex);
+  return out;
+}
+
+// Splits a scratch-input string like "every 2 rev $ bd sn" into chain +
+// mini-notation (the part after the last '$').
+function splitChainAndPattern(src) {
+  if (!src.includes('$')) return { chain: [], pattern: src };
+  const idx = src.lastIndexOf('$');
+  return { chain: parseChain(src.slice(0, idx)), pattern: src.slice(idx + 1).trim() };
+}
+
+// Flatten tree to (begin,end) events — used for the timeline and debug panel.
 function elementsToEvents(elements, offset, length, cycleIndex = 0) {
   const totalWeight = elements.reduce((s, e) => s + e.weight, 0);
   let cursor = offset;
   const events = [];
-  for (const el of elements) {
-    const elLen = length.mul(new Fraction(el.weight, totalWeight));
-    const resolved = resolveCycleVariant(el, cycleIndex);
+  for (const raw of elements) {
+    const elLen = length.mul(new Fraction(raw.weight, totalWeight));
+    const { el: resolved, c } = resolveNode(raw, cycleIndex);
     if (resolved.type === 'leaf') {
       events.push({ value: resolved.value, begin: cursor, end: cursor.add(elLen) });
     } else {
-      events.push(...elementsToEvents(resolved.children, cursor, elLen, cycleIndex));
+      events.push(...elementsToEvents(resolved.children, cursor, elLen, c));
     }
     cursor = cursor.add(elLen);
   }
   return events;
 }
 
-function evalPattern(src, numCycles = 1) {
-  const tokens = tokenise(src);
-  const { layers } = parseTokens(tokens, 0);
+function evalPattern(src, numCycles = 1, startCycle = 0) {
+  const { chain, pattern } = splitChainAndPattern(src);
+  const { layers } = parseTokens(tokenise(pattern), 0);
   const allEvents = [];
-  for (let c = 0; c < numCycles; c++) {
-    const cycleOffset = new Fraction(c);
-    for (const layer of layers) {
-      const raw = elementsToEvents(layer, new Fraction(0), new Fraction(1), c);
-      for (const e of raw) {
-        allEvents.push({
-          value: e.value,
-          begin: e.begin.add(cycleOffset),
-          end: e.end.add(cycleOffset)
-        });
-      }
+  for (let c = startCycle; c < startCycle + numCycles; c++) {
+    const offset = new Fraction(c - startCycle);
+    for (const layer of applyChain(layers, chain, c)) {
+      for (const e of elementsToEvents(layer, new Fraction(0), new Fraction(1), c))
+        allEvents.push({ value: e.value, begin: e.begin.add(offset), end: e.end.add(offset) });
     }
   }
   return allEvents;
 }
 
-// ─── 2. Event → MEI duration mapping ─────────────────────────────────────────
-// Given a duration as a Fraction (in cycles), map to closest MEI dur + dots
-
-// MEI duration codes are numeric (1=whole, 2=half, 4=quarter, 8, 16, 32),
-// not word forms — Verovio tolerates word forms like "whole"/"quarter" on
-// <note> (silently falling back) but divides by zero laying out a <rest>
-// with one, so this must stay numeric for both to render safely.
+// ─── 2. Duration mapping ──────────────────────────────────────────────────────
+// MEI duration codes are numeric (1=whole, 2=half, 4=quarter…), NOT word forms.
 const DUR_TABLE = [
-  // [fraction, dur, dots]
   [new Fraction(1, 1),   '1',  0],
   [new Fraction(3, 4),   '2',  1],
   [new Fraction(1, 2),   '2',  0],
@@ -684,16 +1183,13 @@ const DUR_TABLE = [
   [new Fraction(1, 8),   '8',  0],
   [new Fraction(3, 32),  '16', 1],
   [new Fraction(1, 16),  '16', 0],
+  [new Fraction(3, 64),  '32', 1],
   [new Fraction(1, 32),  '32', 0],
+  [new Fraction(1, 64),  '64', 0],
 ];
 
-// Map a duration fraction (in cycles, 1 = whole note) to the nearest MEI
-// duration. `exact` tells the caller whether this was a clean notatable
-// value or had to be snapped — surfaced in the UI so an approximated
-// rhythm is never silently presented as exact.
 function durationToMEI(frac) {
-  let best = DUR_TABLE[0];
-  let bestDiff = Infinity;
+  let best = DUR_TABLE[0], bestDiff = Infinity;
   for (const entry of DUR_TABLE) {
     const diff = Math.abs(entry[0].toFloat() - frac.toFloat());
     if (diff < bestDiff) { bestDiff = diff; best = entry; }
@@ -701,31 +1197,27 @@ function durationToMEI(frac) {
   return { dur: best[1], dots: best[2], exact: bestDiff < 1e-9 };
 }
 
-// Parse a Strudel note name → MEI pname + oct
-// Strudel: c4, d#5, eb3, r (rest), ~ (hold/tie)
-function parseNote(val, pitchInput = 'name') {
-  if (val === 'r' || val === '~') return { rest: true, tie: val === '~' };
-
-  if (pitchInput === 'midi' && /^-?\d+(\.\d+)?$/.test(val)) {
-    return midiNumberToPitchInfo(Number(val));
+// Greedy decomposition of a duration into a sum of standard note values —
+// used to emit tied notes for durations like 5/8 (= 1/2 + 1/8).
+function decomposeDuration(frac) {
+  const parts = [];
+  let rem = frac;
+  for (const [tf, dur, dots] of DUR_TABLE) {
+    while (rem.n > 0 && rem.n * tf.d >= tf.n * rem.d) {
+      parts.push({ dur, dots });
+      rem = rem.sub(tf);
+    }
+    if (rem.n <= 0) break;
   }
-
-  // Match e.g. "c#4", "eb5", "a4", "C4"
-  const m = val.toLowerCase().match(/^([a-g])([#b]?)(\d+)$/);
-  if (!m) return null;
-  const pname = m[1];
-  const acc = m[2] === '#' ? 's' : m[2] === 'b' ? 'f' : '';
-  const oct = parseInt(m[3]);
-  return { pname, acc, oct, rest: false };
+  return { parts: parts.length ? parts : [{ dur: '4', dots: 0 }], exact: rem.n <= 0 };
 }
 
-// Tidal's `n`/`note` patterns are often plain MIDI numbers (60 = middle C,
-// scientific pitch notation). Matches the same convention used in the
-// sibling VexFlow/Verovio comparison project for consistency.
+// ─── 3. Pitch parsing ─────────────────────────────────────────────────────────
 const MIDI_PITCH_CLASSES = [
-  ['c', ''], ['c', 's'], ['d', ''], ['d', 's'], ['e', ''], ['f', ''],
-  ['f', 's'], ['g', ''], ['g', 's'], ['a', ''], ['a', 's'], ['b', '']
+  ['c',''], ['c','s'], ['d',''], ['d','s'], ['e',''], ['f',''],
+  ['f','s'], ['g',''], ['g','s'], ['a',''], ['a','s'], ['b','']
 ];
+
 function midiNumberToPitchInfo(number) {
   const rounded = Math.round(number);
   const idx = ((rounded % 12) + 12) % 12;
@@ -734,130 +1226,173 @@ function midiNumberToPitchInfo(number) {
   return { pname, acc, oct, rest: false };
 }
 
-// In rhythm-only mode, every non-rest token (sample names like "bd", "sn"
-// carry no pitch) gets drawn on a single fixed pitch — the staff's own
-// middle line — so the notation reads purely as rhythm.
+function parseNote(val, pitchInput = 'name') {
+  if (val === 'r' || val === '~') return { rest: true };
+  if (pitchInput === 'midi' && /^-?\d+(\.\d+)?$/.test(val))
+    return midiNumberToPitchInfo(Number(val));
+  const m = val.toLowerCase().match(/^([a-g])([#b]?)(\d+)$/);
+  if (!m) return null;
+  const acc = m[2] === '#' ? 's' : m[2] === 'b' ? 'f' : '';
+  // Tidal's "c5" is middle C = MEI/scientific octave 4, so the staff octave
+  // is the typed octave minus 1 — the note is drawn where it actually sounds.
+  return { pname: m[1], acc, oct: parseInt(m[3]) - 1, rest: false };
+}
+
 function clefMiddlePitch(clef) {
   return clef === 'treble' ? { pname: 'b', oct: 4 } : { pname: 'd', oct: 3 };
 }
 
-// ─── 3. Pattern tree → MEI XML ───────────────────────────────────────────────
-// No time signature: each cycle is its own free measure, sized by whatever
-// it actually contains.
-//
-// Tuplets are detected and emitted by walking the parse tree directly
-// (not a flattened event list), because tuplets can nest: a group's own
-// non-binary equal subdivision becomes a <tuplet>, and the *written*
-// duration of every leaf inside it is its real duration scaled by the
-// product of every enclosing tuplet's num/numbase — that's what turns an
-// otherwise unnotatable fraction (like 1/9 of a cycle) into something
-// readable ("triplet eighth nested inside a triplet beat").
-
+// ─── 4. Pattern tree → MEI XML ───────────────────────────────────────────────
 let noteIdSeq = 1;
 
-// `mode` is 'pitch' or 'rhythm'. In pitch mode a token that isn't a
-// recognized note name (e.g. a sample name like "bd") yields no event —
-// the caller tracks this via `stats` to offer a "switch to Rhythm mode"
-// fallback. In rhythm mode every non-rest token renders at `fixedPitch`.
-function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput) {
+// Degraded (?) staff notes of the current render, with their absolute cycle
+// positions — so a real Tidal event arriving at that moment can turn the
+// grey notehead black in place. Rebuilt on every patternsToMEI call.
+let liveProbNotes = [];
+
+// Returns an array of MEI XML strings (multiple = tied notes / split rests),
+// or null if the token can't be rendered in this mode. prob < 1 (degrade `?`)
+// renders grey so probabilistic notes stay visible but visually distinct.
+function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, prob = 1, meta = null) {
   stats.total++;
+
   let noteInfo;
   if (mode === 'rhythm') {
     const isRest = value === 'r' || value === '~';
-    noteInfo = isRest ? { rest: true } : { rest: false, pname: fixedPitch.pname, oct: fixedPitch.oct, acc: '' };
+    noteInfo = isRest
+      ? { rest: true }
+      : { rest: false, pname: fixedPitch.pname, oct: fixedPitch.oct, acc: '' };
   } else {
     noteInfo = parseNote(value, pitchInput);
     if (!noteInfo) return null;
   }
 
-  const id = `n${noteIdSeq++}`;
-  const { dur, dots, exact } = durationToMEI(writtenDur);
+  const { parts, exact } = decomposeDuration(writtenDur);
+  const useParts = exact ? parts : [durationToMEI(writtenDur)];
+
   stats.rendered++;
   if (!exact) stats.approximated++;
+  if (prob < 1 && !noteInfo.rest) stats.probabilistic++;
 
-  if (noteInfo.rest) {
-    return `<rest xml:id="${id}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}/>`;
+  // Grey scaled by probability: likely notes (?0.9) darker, unlikely (?0.1)
+  // lighter — the performer reads the odds straight off the page.
+  let colorAttr = '';
+  if (prob < 1 && !noteInfo.rest) {
+    const grey = Math.round(0xcc - prob * 0x66);
+    const hex = grey.toString(16).padStart(2, '0');
+    colorAttr = ` color="#${hex}${hex}${hex}"`;
   }
-  const accAttr = noteInfo.acc ? ` accid="${noteInfo.acc}"` : '';
-  return `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${dur}"${dots ? ` dots="${dots}"` : ''}${accAttr}/>`;
+
+  const partIds = [];
+  const xml = useParts.map((part, i) => {
+    const id = `n${noteIdSeq++}`;
+    const dotsAttr = part.dots ? ` dots="${part.dots}"` : '';
+
+    if (noteInfo.rest) {
+      return `<rest xml:id="${id}" dur="${part.dur}"${dotsAttr}/>`;
+    }
+
+    partIds.push(id);
+    let tieAttr = '';
+    if (useParts.length > 1) {
+      if (i === 0)                      tieAttr = ' tie="i"';
+      else if (i < useParts.length - 1) tieAttr = ' tie="m"';
+      else                              tieAttr = ' tie="t"';
+    }
+
+    const accAttr = noteInfo.acc ? ` accid="${noteInfo.acc}"` : '';
+    return `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${part.dur}"${dotsAttr}${accAttr}${tieAttr}${colorAttr}/>`;
+  });
+
+  // Register degraded notes for live resolution (grey → black when the real
+  // Tidal event for this exact moment arrives). Only for orbit-bound lines.
+  if (prob < 1 && !noteInfo.rest && meta && meta.orbit !== null && meta.orbit !== undefined) {
+    liveProbNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, done: false });
+  }
+
+  return xml;
 }
 
-// Recursively turn a list of sibling elements (all occupying `length` of
-// the parent slot) into MEI item strings. `scale` is the cumulative
-// num/numbase product of every tuplet enclosing this call, applied to
-// leaf durations so nested tuplets compound correctly. `cycleIndex`
-// picks the right branch of any <a b c> alternation encountered.
-function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIndex, pitchInput) {
+// Structural tuplet detection, generalized to weighted groups: a group whose
+// total weight W isn't a power of 2 needs a tuplet bracket against the
+// nearest lower power of two — regardless of whether siblings are equal.
+// e.g. "c4@3 [x] <y> z/2" divides into 3+1+1+1 = 6 parts → a 3:2 tuplet in
+// which c4 spans 3 units (dotted half) and the rest 1 unit each. This is
+// what keeps `b4*4` (1/4 step) visually 4× faster than `b5!3` (full steps)
+// inside such a group instead of both snapping to the same binary value.
+function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIndex, pitchInput, offset = new Fraction(0), orbit = null) {
   const totalWeight = elements.reduce((s, e) => s + e.weight, 0);
   const n = elements.length;
-  const allEqualWeight = n > 0 && elements.every(e => e.weight === elements[0].weight);
-  const isTuplet = n > 1 && allEqualWeight && !isPow2(n);
-  const numbase = isTuplet ? lowerPow2(n) : n;
-  const childScale = isTuplet ? scale.mul(new Fraction(n, numbase)) : scale;
+  const allIntWeights = elements.every(e => Number.isInteger(e.weight) && e.weight > 0);
+  const isTuplet = n > 1 && allIntWeights && !isPow2(totalWeight);
+  let num = totalWeight, numbase = isTuplet ? lowerPow2(totalWeight) : totalWeight;
+  if (isTuplet) {
+    const g = gcd(num, numbase);
+    num /= g; numbase /= g; // 6:4 displays as 3:2; scale ratio is unchanged
+  }
+  const childScale = isTuplet ? scale.mul(new Fraction(num, numbase)) : scale;
 
   const items = [];
-  for (const el of elements) {
-    const elLen = length.mul(new Fraction(el.weight, totalWeight));
-    const resolved = resolveCycleVariant(el, cycleIndex);
+  let cursor = offset; // absolute position (in cycles) — for live degrade resolution
+  for (const raw of elements) {
+    const elLen = length.mul(new Fraction(raw.weight, totalWeight));
+    const { el: resolved, c } = resolveNode(raw, cycleIndex);
     if (resolved.type === 'leaf') {
-      const xml = noteOrRestXML(resolved.value, elLen.mul(childScale), mode, fixedPitch, stats, pitchInput);
-      if (xml) items.push(xml);
+      const prob = resolved.prob !== undefined ? resolved.prob : 1;
+      const parts = noteOrRestXML(resolved.value, elLen.mul(childScale), mode, fixedPitch, stats, pitchInput, prob,
+        { orbit, begin: cursor.toFloat() });
+      if (parts) items.push(...parts);
     } else {
-      items.push(...buildMEIItems(resolved.children, elLen, childScale, mode, fixedPitch, stats, cycleIndex, pitchInput));
+      items.push(...buildMEIItems(resolved.children, elLen, childScale, mode, fixedPitch, stats, c, pitchInput, cursor, orbit));
     }
+    cursor = cursor.add(elLen);
   }
 
-  if (isTuplet && items.length) {
-    return [`<tuplet num="${n}" numbase="${numbase}">\n${items.join('\n')}\n</tuplet>`];
-  }
+  if (isTuplet && items.length)
+    return [`<tuplet num="${num}" numbase="${numbase}">\n${items.join('\n')}\n</tuplet>`];
   return items;
 }
 
-// Multiple simultaneous patterns (e.g. flagged live-coder lines d1, d2...)
-// become one staff each, stacked in the same staffGrp/measures — they're
-// orbits playing together, so they belong in one score, not separate ones.
-// Within a single pattern, a top-level "," (e.g. "bd*4, hh*8") becomes
-// multiple simultaneous <layer> elements inside that one staff — true
-// independent-rhythm polyphony, not chords, which is correct since the
-// comma-separated parts usually don't share a common pulse.
-function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', pitchInput = 'name' } = {}) {
+// Multiple simultaneous patterns → one <staff> each. `startCycle` picks
+// which absolute cycle indices resolve alternation/slow — this is what
+// makes the notes change as the playback clock advances.
+function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', pitchInput = 'name', startCycle = 0 } = {}) {
   noteIdSeq = 1;
+  liveProbNotes = [];
+  iterApproximated = 0;
   const parsed = patterns.map(p => {
-    const tokens = tokenise(p.src);
-    const { layers } = parseTokens(tokens, 0);
-    return { label: p.label, layers };
+    // A '$' in the source means a function chain precedes the mini-notation
+    // (typed directly); bridge-fed lines carry their chain in p.chain.
+    const { chain: srcChain, pattern } = splitChainAndPattern(p.src);
+    const { layers } = parseTokens(tokenise(pattern), 0);
+    const om = (p.label || '').match(/^d(\d+)$/);
+    return {
+      label: p.label,
+      baseLayers: layers,
+      chain: [...(p.chain || []), ...srcChain],
+      orbit: om ? parseInt(om[1]) - 1 : null
+    };
   });
 
-  // Rhythm mode uses a real single-line percussion staff — genuinely
-  // unpitched notation, rather than a 5-line staff with every note forced
-  // onto one fixed pitch (which implies pitch information that isn't
-  // there). Verovio renders no clef glyph for this configuration, but
-  // that's consistent with the sibling VexFlow/Verovio comparison
-  // project's reference implementation too, not a defect of this one.
   const isRhythm = mode === 'rhythm';
   const staffLines = isRhythm ? '1' : '5';
-  const clefShape = isRhythm ? 'perc' : (clef === 'treble' ? 'G' : 'F');
-  const clefLine  = isRhythm ? '1' : (clef === 'treble' ? '2' : '4');
+  const clefShape  = isRhythm ? 'perc' : (clef === 'treble' ? 'G' : 'F');
+  const clefLine   = isRhythm ? '1'    : (clef === 'treble' ? '2' : '4');
   const fixedPitch = clefMiddlePitch(clef);
-  const stats = { total: 0, rendered: 0, approximated: 0 };
+  const stats = { total: 0, rendered: 0, approximated: 0, probabilistic: 0 };
 
   const measureEls = [];
-  for (let c = 0; c < numCycles; c++) {
+  for (let c = startCycle; c < startCycle + numCycles; c++) {
+    const measureN = c - startCycle + 1;
     const staffEls = parsed.map((p, idx) => {
-      const layerEls = p.layers.map((layerElements, li) => {
-        const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, c, pitchInput);
-        return `
-          <layer n="${li + 1}">
-            ${items.join('\n            ')}
-          </layer>`;
+      const cycleLayers = applyChain(p.baseLayers, p.chain, c);
+      const layerEls = cycleLayers.map((layerElements, li) => {
+        const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, c, pitchInput, new Fraction(c), p.orbit);
+        return `\n          <layer n="${li + 1}">\n            ${items.join('\n            ')}\n          </layer>`;
       });
-      return `
-        <staff n="${idx + 1}">${layerEls.join('')}
-        </staff>`;
+      return `\n        <staff n="${idx + 1}">${layerEls.join('')}\n        </staff>`;
     });
-    measureEls.push(`
-      <measure n="${c + 1}" right="${c === numCycles - 1 ? 'end' : 'single'}">${staffEls.join('')}
-      </measure>`);
+    measureEls.push(`\n      <measure n="${measureN}" right="${measureN === numCycles ? 'end' : 'single'}">${staffEls.join('')}\n      </measure>`);
   }
 
   const staffDefs = parsed.map((p, idx) =>
@@ -867,24 +1402,18 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   const mei = `<?xml version="1.0" encoding="UTF-8"?>
 <mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="4.0">
   <meiHead><fileDesc><titleStmt><title/></titleStmt><pubStmt/></fileDesc></meiHead>
-  <music>
-    <body>
-      <mdiv>
-        <score>
-          <scoreDef key.sig="0">
-            <staffGrp>
-              ${staffDefs}
-            </staffGrp>
-          </scoreDef>
-          <section>
-          ${measureEls.join('')}
-          </section>
-        </score>
-      </mdiv>
-    </body>
-  </music>
+  <music><body><mdiv><score>
+    <scoreDef key.sig="0">
+      <staffGrp>
+        ${staffDefs}
+      </staffGrp>
+    </scoreDef>
+    <section>${measureEls.join('')}
+    </section>
+  </score></mdiv></body></music>
 </mei>`;
 
+  stats.approximated += iterApproximated;
   return { mei, stats };
 }
 
@@ -892,45 +1421,149 @@ function patternToMEI(src, numCycles, opts = {}) {
   return patternsToMEI([{ label: null, src }], numCycles, opts);
 }
 
-// ─── 4. UI & Verovio rendering ───────────────────────────────────────────────
+// Shared by the timeline and graphic fallback: a pattern's layers for one
+// specific cycle, with its function chain applied.
+function patternLayersForCycle(p, cycleIndex) {
+  const { chain: srcChain, pattern } = splitChainAndPattern(p.src);
+  const { layers } = parseTokens(tokenise(pattern), 0);
+  return applyChain(layers, [...(p.chain || []), ...srcChain], cycleIndex);
+}
+
+// ─── 5. Verovio rendering ─────────────────────────────────────────────────────
 let vrvToolkit = null;
 
 async function initVerovio() {
   const statusEl = document.getElementById('status');
+  const pillText = document.getElementById('verovioStatus');
+  const pillDot  = document.getElementById('verovioDot');
   try {
     await new Promise(resolve => { Module.onRuntimeInitialized = resolve; });
     vrvToolkit = new verovio.toolkit();
-    statusEl.textContent = 'Verovio ready — enter a pattern and press Convert';
-    statusEl.className = 'status ok';
+    pillText.textContent = 'Verovio ready';
+    pillDot.className = 'status-dot ok';
+    statusEl.textContent = 'Ready — flag a live line or press Render';
+    statusEl.className = 'render-status ok';
     document.getElementById('convertBtn').disabled = false;
   } catch (e) {
+    pillText.textContent = 'Verovio failed';
+    pillDot.className = 'status-dot err';
     statusEl.textContent = 'Verovio failed to load: ' + e.message;
-    statusEl.className = 'status err';
+    statusEl.className = 'render-status err';
     console.error(e);
   }
 }
 
-// A duration that couldn't be matched exactly (rare with tuplet detection,
-// but still possible for mixed-weight groups) is silently rounded to the
-// nearest notatable value — this surfaces that instead of hiding it.
 function approximatedSuffix(stats) {
-  return stats.approximated > 0
-    ? ` · ${stats.approximated} duration${stats.approximated === 1 ? '' : 's'} approximated`
-    : '';
+  const parts = [];
+  if (stats.approximated  > 0) parts.push(`${stats.approximated} duration${stats.approximated   === 1 ? '' : 's'} approximated`);
+  if (stats.probabilistic > 0) parts.push(`${stats.probabilistic} probabilistic event${stats.probabilistic === 1 ? '' : 's'}`);
+  return parts.length ? ' · ' + parts.join(' · ') : '';
 }
 
-// Shared by the scratch playground and the live-lines renderer below.
+// Red playhead line injected into the Verovio SVG, animated during Play.
+function injectPlayhead(svgEl) {
+  let ph = svgEl.querySelector('#score-playhead');
+  if (!ph) {
+    ph = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    ph.id = 'score-playhead';
+    ph.setAttribute('stroke', '#a32828');
+    ph.setAttribute('stroke-width', '10');
+    ph.setAttribute('stroke-opacity', '0.5');
+    ph.setAttribute('stroke-linecap', 'round');
+    svgEl.appendChild(ph);
+  }
+  const vb = svgEl.viewBox.baseVal;
+  ph.setAttribute('y1', String(vb.y));
+  ph.setAttribute('y2', String(vb.y + vb.height));
+  ph.setAttribute('x1', String(vb.x));
+  ph.setAttribute('x2', String(vb.x));
+}
+
+// ── Clock model ──────────────────────────────────────────────────────────────
+// Two clock sources: Tidal's real OSC clock (via the bridge, whenever a live
+// session is playing) and the internal Play timer. The remote clock always
+// wins while fresh (<3s old) — that's what keeps the score in true sync with
+// what the audience hears, instead of a simulated tempo.
+const remoteClock = { cycle: 0, cps: 0, at: 0 };
+const liveEvents  = { byCycle: new Map(), lastAt: 0 };
+
+function clockIsLive() { return remoteClock.at > 0 && performance.now() - remoteClock.at < 3000; }
+
+function currentCycleFloat() {
+  if (clockIsLive())
+    return remoteClock.cycle + (performance.now() - remoteClock.at) / 1000 * remoteClock.cps;
+  if (playback.playing)
+    return playback.cycleIndex + Math.min(1, (Date.now() - playback.currentCycleStart) / getCycleMs());
+  return playback.cycleIndex;
+}
+
+function flashPulse() {
+  const p = document.getElementById('cyclePulse');
+  p.classList.remove('flash');
+  void p.offsetWidth; // restart the CSS animation
+  p.classList.add('flash');
+}
+
+// One always-running animation loop drives: the cycle pulse ring, the staff
+// playhead, the graphic-score playhead, cycle advancement when following
+// Tidal's clock, and the clock-source display.
+let wasClockLive = false;
+
+function masterLoop() {
+  const cf = currentCycleFloat();
+  const live = clockIsLive();
+
+  // Live→internal transition (Tidal stopped): re-render once so the graphic
+  // falls back from "what played" to the typed patterns view.
+  if (wasClockLive !== live) {
+    wasClockLive = live;
+    if (!live) renderCurrent();
+  }
+
+  if (live) {
+    const ci = Math.floor(cf);
+    if (ci !== playback.cycleIndex && ci >= 0) {
+      playback.cycleIndex = ci;
+      flashPulse();
+      renderCurrent();
+    }
+  }
+
+  const numCycles = parseInt(document.getElementById('cyclesOpt').value);
+  const windowPhase = Math.min(1, Math.max(0, (cf - playback.cycleIndex) / numCycles));
+  const cyclePhase = cf - Math.floor(cf);
+  const running = live || playback.playing;
+
+  const pct = (running ? cyclePhase * 100 : 0).toFixed(1);
+  document.getElementById('cyclePulse').style.background =
+    `conic-gradient(var(--accent) ${pct}%, var(--pulse-rest) ${pct}%)`;
+  document.getElementById('cyclePulseNum').textContent = Math.floor(cf);
+
+  const svgEl = document.querySelector('#scoreArea svg');
+  const ph = svgEl && svgEl.querySelector('#score-playhead');
+  if (ph && running) {
+    const vb = svgEl.viewBox.baseVal;
+    const x = vb.x + vb.width * windowPhase;
+    ph.setAttribute('x1', String(x)); ph.setAttribute('x2', String(x));
+  }
+
+  document.querySelectorAll('.graphic-playhead').forEach(el => {
+    el.style.left = `${(windowPhase * 100).toFixed(2)}%`;
+    el.style.display = running ? '' : 'none';
+  });
+
+  document.getElementById('clockSource').value =
+    live ? `Tidal · ${remoteClock.cps.toFixed(3)} cps` : 'internal';
+
+  requestAnimationFrame(masterLoop);
+}
+
 function renderToScoreArea(mei) {
   const svg = vrvToolkit.renderData(mei, {
-    pageWidth: 2400,
-    pageHeight: 800,
-    pageMarginTop: 80,
-    pageMarginBottom: 80,
-    pageMarginLeft: 80,
-    pageMarginRight: 80,
-    scale: 40,
-    adjustPageWidth: 1,
-    adjustPageHeight: 1,
+    pageWidth: 2400, pageHeight: 800,
+    pageMarginTop: 80, pageMarginBottom: 80,
+    pageMarginLeft: 80, pageMarginRight: 80,
+    scale: 40, adjustPageWidth: 1, adjustPageHeight: 1,
   });
   const scoreArea = document.getElementById('scoreArea');
   scoreArea.innerHTML = svg;
@@ -939,9 +1572,76 @@ function renderToScoreArea(mei) {
     svgEl.style.filter = '';
     svgEl.style.maxWidth = '100%';
     svgEl.style.height = 'auto';
+    injectPlayhead(svgEl);
   }
 }
 
+// ─── 6. Playback clock ────────────────────────────────────────────────────────
+const playback = { playing: false, cycleIndex: 0, timer: null, currentCycleStart: 0, rafId: null };
+
+function getCps()     { return Math.max(0.001, parseFloat(document.getElementById('cpsInput').value) || 0.5625); }
+function getCycleMs() { return 1000 / getCps(); }
+
+function updateCpsDisplay() {
+  document.getElementById('cycleLength').value = `${(getCycleMs() / 1000).toFixed(3)} s`;
+}
+
+// Keeps the cycle number input and score title in sync with playback.
+function updateCycleUI(labels) {
+  document.getElementById('cycleIndex').value = playback.cycleIndex;
+  const title = document.getElementById('scoreTitle');
+  const who = labels && labels.length ? labels : 'scratch';
+  title.textContent = `${who} · cycle ${playback.cycleIndex}`;
+}
+
+function setPlayBtnState(playing) {
+  document.getElementById('playBtn').disabled = playing;
+  document.getElementById('stopBtn').disabled = !playing;
+}
+
+// Renders whichever source is active: flagged live lines take priority,
+// otherwise the scratch pattern re-renders (so Play works for both).
+function renderCurrent() {
+  const flagged = getFlaggedLines();
+  if (flagged.length > 0) renderLivePattern();
+  else if (document.getElementById('patInput').value.trim()) renderPattern();
+  scheduleGraphicRender();
+}
+
+function playStart() {
+  if (playback.playing) return;
+  playback.playing = true;
+  playback.currentCycleStart = Date.now();
+  playback.timer = setInterval(() => {
+    if (clockIsLive()) return; // Tidal's own clock drives cycles while live
+    playback.cycleIndex++;
+    playback.currentCycleStart = Date.now();
+    flashPulse();
+    renderCurrent();
+  }, getCycleMs());
+  setPlayBtnState(true);
+}
+
+function playStop() {
+  if (!playback.playing) return;
+  clearInterval(playback.timer);
+  playback.playing = false;
+  setPlayBtnState(false);
+}
+
+function playSync() {
+  playback.cycleIndex = 0;
+  const was = playback.playing;
+  if (was) { playStop(); playStart(); }
+  else renderCurrent();
+}
+
+function stepCycle(delta) {
+  playback.cycleIndex = Math.max(0, playback.cycleIndex + delta);
+  renderCurrent();
+}
+
+// ─── 7. Scratch playground renderer ──────────────────────────────────────────
 function renderPattern() {
   const patInput   = document.getElementById('patInput').value.trim();
   const cycles     = parseInt(document.getElementById('cyclesOpt').value);
@@ -950,69 +1650,57 @@ function renderPattern() {
   const pitchInput = document.getElementById('pitchInputOpt').value;
   const statusEl   = document.getElementById('status');
 
-  if (!vrvToolkit) {
-    statusEl.textContent = 'Verovio not yet loaded…'; statusEl.className = 'status info'; return;
-  }
-  if (!patInput) {
-    statusEl.textContent = 'Please enter a pattern'; statusEl.className = 'status err'; return;
-  }
+  if (!vrvToolkit) { statusEl.textContent = 'Verovio not yet loaded…'; statusEl.className = 'render-status'; return; }
+  if (!patInput)   { statusEl.textContent = 'Please enter a pattern'; statusEl.className = 'render-status err'; return; }
 
   try {
-    // Parse
-    const events = evalPattern(patInput, cycles);
-
-    // Render events grid
+    const events = evalPattern(patInput, cycles, playback.cycleIndex);
     const grid = document.getElementById('eventsGrid');
     grid.innerHTML = '';
     events.forEach(ev => {
       const chip = document.createElement('div');
       chip.className = 'event-chip';
-      const dur = new Fraction(ev.end.n * ev.begin.d - ev.begin.n * ev.end.d,
-                               ev.begin.d * ev.end.d);
-      chip.innerHTML = `<span class="pitch">${ev.value}</span><br>` +
-        `<span class="dur">${ev.begin.toString()} → ${ev.end.toString()}</span>`;
+      chip.innerHTML = `<span class="pitch">${ev.value}</span><br><span class="dur">${ev.begin} → ${ev.end}</span>`;
       grid.appendChild(chip);
     });
     document.getElementById('eventDetails').style.display = '';
     document.getElementById('meiDetails').style.display = '';
 
-    // Convert to MEI and render
-    const { mei, stats } = patternToMEI(patInput, cycles, { clef, mode, pitchInput });
+    const { mei, stats } = patternToMEI(patInput, cycles, { clef, mode, pitchInput, startCycle: playback.cycleIndex });
     document.getElementById('meiPre').textContent = mei;
     renderToScoreArea(mei);
+    renderTimeline([{ label: null, src: patInput }], cycles, playback.cycleIndex);
+    scheduleGraphicRender();
+    updateCycleUI(null);
+    document.getElementById('patternLabel').textContent = patInput;
 
     if (stats.rendered === 0) {
-      statusEl.textContent = 'No pitch data found in this pattern — try Rhythm mode';
-      statusEl.className = 'status err';
+      statusEl.textContent = 'No pitch data — try Rhythm mode'; statusEl.className = 'render-status err';
     } else if (stats.rendered < stats.total) {
-      statusEl.textContent = `✓ ${stats.rendered}/${stats.total} events rendered · ${stats.total - stats.rendered} skipped (no pitch data)${approximatedSuffix(stats)}`;
-      statusEl.className = 'status ok';
+      statusEl.textContent = `✓ ${stats.rendered}/${stats.total} rendered · ${stats.total - stats.rendered} skipped${approximatedSuffix(stats)}`; statusEl.className = 'render-status ok';
     } else {
-      statusEl.textContent = `✓ ${events.length} events · ${stats.rendered} notes rendered${approximatedSuffix(stats)}`;
-      statusEl.className = 'status ok';
+      statusEl.textContent = `✓ ${events.length} events · ${stats.rendered} rendered${approximatedSuffix(stats)}`; statusEl.className = 'render-status ok';
     }
-
   } catch (e) {
-    statusEl.textContent = 'Error: ' + e.message;
-    statusEl.className = 'status err';
-    console.error(e);
+    statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'render-status err'; console.error(e);
   }
 }
 
-// ─── Live lines: flagged rows feed the score in real time ───────────────────
+// ─── 8. Live lines ────────────────────────────────────────────────────────────
 function getFlaggedLines() {
   return [...document.querySelectorAll('.live-line-row')]
     .filter(row => row.querySelector('.live-line-checkbox').checked)
     .map(row => ({
       label: row.querySelector('.live-line-label').textContent.trim(),
-      src: row.querySelector('.live-line-input').value.trim()
+      src: row.querySelector('.live-line-input').value.trim(),
+      // per-line chain (from the bridge) behind the global `all $` chain
+      chain: [...allChain, ...JSON.parse(row.dataset.chain || '[]')]
     }))
     .filter(p => p.src.length > 0);
 }
 
 function renderLivePattern() {
   if (!vrvToolkit) return;
-
   const cycles     = parseInt(document.getElementById('cyclesOpt').value);
   const clef       = document.getElementById('clefOpt').value;
   const mode       = document.getElementById('modeOpt').value;
@@ -1021,52 +1709,316 @@ function renderLivePattern() {
   const patterns   = getFlaggedLines();
 
   if (patterns.length === 0) {
-    statusEl.textContent = 'No lines flagged — check a line below to send it to the score';
-    statusEl.className = 'status info';
-    document.getElementById('scoreArea').innerHTML =
-      '<div class="placeholder"><span class="big">𝄞</span>Flag a line to send it to the score</div>';
+    statusEl.textContent = 'No lines flagged — check a line to send it to the score';
+    statusEl.className = 'render-status';
+    document.getElementById('scoreArea').innerHTML = '<div class="placeholder"><span class="big">𝄞</span>Flag a line to send it to the score</div>';
     document.getElementById('eventDetails').style.display = 'none';
     document.getElementById('meiDetails').style.display = 'none';
+    renderTimeline([], cycles, playback.cycleIndex);
     return;
   }
 
   try {
-    const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput });
+    const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle: playback.cycleIndex });
     document.getElementById('meiPre').textContent = mei;
     document.getElementById('meiDetails').style.display = '';
     document.getElementById('eventDetails').style.display = 'none';
     renderToScoreArea(mei);
+    renderTimeline(patterns, cycles, playback.cycleIndex);
+    scheduleGraphicRender();
+    sweepProbNotes();
 
     const labels = patterns.map(p => p.label).join(', ');
+    updateCycleUI(labels);
+    document.getElementById('patternLabel').textContent = patterns.map(p => p.src).join('   ·   ');
+
     if (stats.rendered === 0) {
-      statusEl.textContent = `No pitch data found in flagged lines (${labels}) — try Rhythm mode`;
-      statusEl.className = 'status err';
+      statusEl.textContent = `No pitch data in (${labels}) — try Rhythm mode`; statusEl.className = 'render-status err';
     } else if (stats.rendered < stats.total) {
-      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered}/${stats.total} events (${stats.total - stats.rendered} skipped)${approximatedSuffix(stats)}`;
-      statusEl.className = 'status ok';
+      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered}/${stats.total} (${stats.total - stats.rendered} skipped)${approximatedSuffix(stats)}`; statusEl.className = 'render-status ok';
     } else {
-      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered} events rendered${approximatedSuffix(stats)}`;
-      statusEl.className = 'status ok';
+      statusEl.textContent = `✓ live: ${labels} · ${stats.rendered} events${approximatedSuffix(stats)}`; statusEl.className = 'render-status ok';
     }
   } catch (e) {
-    statusEl.textContent = 'Error: ' + e.message;
-    statusEl.className = 'status err';
-    console.error(e);
+    statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'render-status err'; console.error(e);
   }
 }
 
 let liveDebounceTimer = null;
 function scheduleLiveRender() {
   clearTimeout(liveDebounceTimer);
-  liveDebounceTimer = setTimeout(renderLivePattern, 500);
+  liveDebounceTimer = setTimeout(() => { renderLivePattern(); scheduleGraphicRender(); }, 500);
 }
 
-// Tidal supports orbits d1-d16; generate one row per orbit rather than
-// hand-writing 16 near-identical blocks. d1/d2 get a demo pattern seeded
-// so the panel isn't empty on first load.
+// ─── 9. Timeline ribbon ───────────────────────────────────────────────────────
+const TIMELINE_COLORS = ['#146c94','#8a3ffc','#d65076','#0f7a55','#b45f06','#2f6fdd'];
+
+function renderTimeline(patterns, numCycles, startCycle) {
+  const container = document.getElementById('timelineArea');
+  container.innerHTML = '';
+  if (!patterns.length) {
+    container.innerHTML = '<span class="hint">Nothing rendered yet.</span>';
+    return;
+  }
+
+  patterns.forEach((p, idx) => {
+    const row   = document.createElement('div'); row.className = 'timeline-row';
+    const lbl   = document.createElement('div'); lbl.className = 'timeline-label'; lbl.textContent = p.label || '·';
+    const track = document.createElement('div'); track.className = 'timeline-track';
+    row.appendChild(lbl); row.appendChild(track);
+    container.appendChild(row);
+
+    const color = TIMELINE_COLORS[idx % TIMELINE_COLORS.length];
+
+    for (let ci = startCycle; ci < startCycle + numCycles; ci++) {
+      const offset = ci - startCycle;
+      for (const layer of patternLayersForCycle(p, ci)) {
+        for (const ev of elementsToEvents(layer, new Fraction(0), new Fraction(1), ci)) {
+          if (ev.value === '~' || ev.value === 'r') continue;
+          const x = (offset + ev.begin.toFloat()) / numCycles;
+          const w = (ev.end.toFloat() - ev.begin.toFloat()) / numCycles;
+          const block = document.createElement('div');
+          block.className = 'timeline-block';
+          block.style.left       = `${(x * 100).toFixed(2)}%`;
+          block.style.width      = `${(w * 100).toFixed(2)}%`;
+          block.style.background = color;
+          block.title = `${ev.value}  ${ev.begin}→${ev.end}`;
+          if (w * 100 > 3) block.textContent = ev.value;
+          track.appendChild(block);
+        }
+      }
+    }
+  });
+}
+
+// ─── 9b. Graphic score ────────────────────────────────────────────────────────
+// Two data sources, used in priority order:
+//  1. Real Tidal OSC events (via the bridge) — these reflect everything Tidal
+//     actually played, INCLUDING jux, cut, every, randomness, # chains…
+//     because Tidal itself resolved them before sending. This is the view
+//     that answers "all functions must work".
+//  2. Parsed text of flagged lines (fallback when no live session).
+function hashString(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function colorFor(v) { return TIMELINE_COLORS[hashString(String(v)) % TIMELINE_COLORS.length]; }
+
+// Tidal octave naming: middle C (MIDI 60) is "C5" in Tidal, one octave up
+// from scientific pitch notation. All labels shown to the user follow the
+// TIDAL convention so what you type is what you read back.
+function midiToName(m) {
+  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const r = Math.round(m);
+  return `${names[((r % 12) + 12) % 12]}${Math.floor(r / 12)}`;
+}
+
+// Tidal events carry `s` (sample/synth name) and/or `note`/`n` (relative to
+// c5=0 in Tidal convention → +60 for MIDI). Priority: `note` is only set by
+// melodic patterns so it wins; bare `n` can also mean a sample index
+// (bd:3), so it ranks below `s`.
+function tidalEventValue(ev) {
+  if (ev.note !== undefined && ev.note !== null && ev.note !== '') return midiToName(Number(ev.note) + 60);
+  if (ev.s !== undefined && ev.s !== null && ev.s !== '') return String(ev.s);
+  if (ev.n !== undefined && ev.n !== null && ev.n !== '') return midiToName(Number(ev.n) + 60);
+  return '?';
+}
+
+// A real event arrived at this exact moment/orbit → its degraded staff note
+// actually played this cycle: turn the grey notehead(s) black in place.
+function resolveProbNotes(orbit, cycleFloat) {
+  for (const pn of liveProbNotes) {
+    if (pn.done || pn.orbit !== orbit) continue;
+    if (Math.abs(cycleFloat - pn.begin) < 0.02) {
+      pn.done = true;
+      for (const id of pn.ids) {
+        // Verovio translates MEI @color into an SVG fill on the note group —
+        // override that fill to blacken the glyph without re-rendering.
+        const g = document.querySelector(`#scoreArea svg [id="${id}"]`);
+        if (g) { g.setAttribute('fill', '#000000'); g.style.fill = '#000000'; }
+      }
+    }
+  }
+}
+
+// After a fresh render, re-check events that already arrived for the
+// displayed cycles (an event can beat the cycle-boundary re-render by a
+// few milliseconds and would otherwise be missed).
+function sweepProbNotes() {
+  if (!liveProbNotes.length) return;
+  for (const [ci, evs] of liveEvents.byCycle) {
+    for (const ev of evs) resolveProbNotes(ev.orbit, ci + ev.begin);
+  }
+}
+
+function recordTidalEvent(ev) {
+  const cycleFloat = Number(ev.cycle);
+  const delta = Number(ev.delta);
+  const cps = Number(ev.cps);
+  if (!Number.isFinite(cycleFloat) || !Number.isFinite(delta)) return;
+  const ci = Math.floor(cycleFloat);
+
+  // Tidal's `delta` is the event duration in seconds; convert to cycles
+  // via cps. (If cps is missing, treat delta as already being in cycles.)
+  const durCycles = Number.isFinite(cps) && cps > 0 ? delta * cps : delta;
+
+  const orbitNum = Number.isFinite(Number(ev.orbit)) ? Number(ev.orbit) : 0;
+  if (!liveEvents.byCycle.has(ci)) liveEvents.byCycle.set(ci, []);
+  liveEvents.byCycle.get(ci).push({
+    orbit: orbitNum,
+    value: tidalEventValue(ev),
+    begin: cycleFloat - ci,
+    dur: Math.max(durCycles, 0.005)
+  });
+  resolveProbNotes(orbitNum, cycleFloat);
+
+  for (const key of liveEvents.byCycle.keys())
+    if (key < ci - 32) liveEvents.byCycle.delete(key);
+
+  liveEvents.lastAt = performance.now();
+  document.getElementById('oscDot').className = 'status-dot ok';
+  document.getElementById('oscStatus').textContent = 'Tidal events live';
+  scheduleGraphicRender();
+}
+
+function applyRemoteClock(msg) {
+  const cps = Number(msg.cps), cycle = Number(msg.cycle);
+  if (!Number.isFinite(cps) || !Number.isFinite(cycle) || cps <= 0) return;
+  remoteClock.cps = cps;
+  remoteClock.cycle = cycle;
+  remoteClock.at = performance.now();
+  const el = document.getElementById('cpsInput');
+  if (Math.abs((parseFloat(el.value) || 0) - cps) > 1e-4) {
+    el.value = cps.toFixed(4);
+    updateCpsDisplay();
+  }
+}
+
+// Coalesce to one render per animation frame — a block must appear as close
+// to its sound as possible, and rebuilding a few dozen divs is frame-cheap.
+let graphicQueued = false;
+function scheduleGraphicRender() {
+  if (graphicQueued) return;
+  graphicQueued = true;
+  requestAnimationFrame(() => { graphicQueued = false; renderGraphic(); });
+}
+
+function renderGraphic() {
+  const panel = document.getElementById('graphicPanel');
+  if (panel.style.display === 'none') return;
+  const area = document.getElementById('graphicArea');
+  const numCycles = parseInt(document.getElementById('cyclesOpt').value);
+  const start = playback.cycleIndex;
+
+  // lanes: label -> [{value, x (0..1 across window), w}]
+  const lanes = new Map();
+  const live = clockIsLive();
+
+  if (live) {
+    // Live session: draw ONLY what Tidal actually played. No typed-pattern
+    // fallback here — otherwise every cycle boundary would flash the full
+    // pattern and then "lose" the notes that didn't win their coin flip.
+    // Blocks accumulate through the cycle as their sounds happen.
+    // Pre-create lanes for flagged lines and recently-seen orbits so empty
+    // lanes exist from cycle start instead of popping in mid-cycle.
+    for (const p of getFlaggedLines()) if (!lanes.has(p.label)) lanes.set(p.label, []);
+    for (let ci = start - 4; ci < start + numCycles; ci++) {
+      for (const ev of (liveEvents.byCycle.get(ci) || [])) {
+        const label = `d${ev.orbit + 1}`;
+        if (!lanes.has(label)) lanes.set(label, []);
+      }
+    }
+    for (let ci = start; ci < start + numCycles; ci++) {
+      for (const ev of (liveEvents.byCycle.get(ci) || [])) {
+        const label = `d${ev.orbit + 1}`;
+        if (!lanes.has(label)) lanes.set(label, []);
+        lanes.get(label).push({
+          value: ev.value,
+          x: (ci - start + ev.begin) / numCycles,
+          w: ev.dur / numCycles
+        });
+      }
+    }
+  } else {
+    // No live Tidal events: fall back to flagged lines, or the scratch
+    // pattern when nothing is flagged (so presets work standalone too).
+    let sources = getFlaggedLines();
+    if (!sources.length) {
+      const scratch = document.getElementById('patInput').value.trim();
+      if (scratch) sources = [{ label: '·', src: scratch }];
+    }
+    for (const p of sources) {
+      if (!lanes.has(p.label)) lanes.set(p.label, []);
+      for (let ci = start; ci < start + numCycles; ci++) {
+        let cycleLayers;
+        try { cycleLayers = patternLayersForCycle(p, ci); }
+        catch { continue; }
+        for (const layer of cycleLayers) {
+          for (const ev of elementsToEvents(layer, new Fraction(0), new Fraction(1), ci)) {
+            if (ev.value === '~' || ev.value === 'r') continue;
+            lanes.get(p.label).push({
+              value: ev.value,
+              x: (ci - start + ev.begin.toFloat()) / numCycles,
+              w: (ev.end.toFloat() - ev.begin.toFloat()) / numCycles
+            });
+          }
+        }
+      }
+    }
+  }
+
+  document.getElementById('graphicSourceLabel').textContent = live
+    ? 'live from Tidal — shows exactly what played (jux, every, cut included)'
+    : 'from typed patterns';
+
+  area.innerHTML = '';
+  if (!lanes.size) {
+    area.innerHTML = live
+      ? '<span class="hint">Waiting for Tidal events…</span>'
+      : '<span class="hint">No events — flag a line or play Tidal.</span>';
+    return;
+  }
+
+  const sortedLabels = [...lanes.keys()].sort((a, b) =>
+    parseInt(a.slice(1)) - parseInt(b.slice(1)) || a.localeCompare(b));
+
+  for (const label of sortedLabels) {
+    const row   = document.createElement('div'); row.className = 'graphic-row';
+    const lbl   = document.createElement('div'); lbl.className = 'graphic-label'; lbl.textContent = label;
+    const track = document.createElement('div'); track.className = 'graphic-track';
+    track.style.backgroundSize = `${(100 / (4 * numCycles)).toFixed(3)}% 100%`;
+    row.appendChild(lbl); row.appendChild(track);
+    area.appendChild(row);
+
+    for (const e of lanes.get(label)) {
+      const b = document.createElement('div');
+      b.className = 'graphic-block';
+      b.style.left       = `${(e.x * 100).toFixed(2)}%`;
+      b.style.width      = `${Math.max(0.4, e.w * 100).toFixed(2)}%`;
+      b.style.background = colorFor(e.value);
+      b.title = e.value;
+      if (e.w * 100 > 3) b.textContent = e.value;
+      track.appendChild(b);
+    }
+
+    const ph = document.createElement('div');
+    ph.className = 'graphic-playhead';
+    track.appendChild(ph);
+  }
+}
+
+function applyViewOption() {
+  const v = document.getElementById('viewOpt').value;
+  document.getElementById('staffPanel').style.display   = v === 'graphic' ? 'none' : '';
+  document.getElementById('graphicPanel').style.display = v === 'staff'   ? 'none' : '';
+  if (v !== 'staff') renderGraphic();
+}
+
+// ─── 10. Live lines DOM generation ───────────────────────────────────────────
 const LIVE_LINE_COUNT = 16;
 const liveLinesEl = document.getElementById('liveLines');
-const SEED_PATTERNS = { d1: 'bd sn hh hh', d2: 'c4 e4 g4' };
+const SEED_PATTERNS = { d1: 'bd sn hh hh', d2: 'c5 e5 g5' };
 for (let i = 1; i <= LIVE_LINE_COUNT; i++) {
   const line = `d${i}`;
   const row = document.createElement('div');
@@ -1074,34 +2026,54 @@ for (let i = 1; i <= LIVE_LINE_COUNT; i++) {
   row.innerHTML = `
     <input type="checkbox" class="live-line-checkbox" id="flag-${line}">
     <label class="live-line-label" for="flag-${line}">${line}</label>
-    <input type="text" class="live-line-input" id="liveInput-${line}"
-      value="${SEED_PATTERNS[line] || ''}" placeholder="Enter mini-notation…">
+    <span class="live-line-main">
+      <input type="text" class="live-line-input" id="liveInput-${line}"
+        value="${SEED_PATTERNS[line] || ''}" placeholder="mini-notation…">
+      <span class="chain-badge"></span>
+    </span>
   `;
   liveLinesEl.appendChild(row);
   row.querySelector('.live-line-input').addEventListener('input', scheduleLiveRender);
   row.querySelector('.live-line-checkbox').addEventListener('change', scheduleLiveRender);
 }
 
-// ─── Tidal/Pulsar bridge: WebSocket client ───────────────────────────────────
-// Talks to tidal-score-bridge.js (see ../tidal-score-bridge.js), fed by the
-// pulsar-tidal-score-forwarder package. We only consume text-based
-// messages (source-update/pattern-update) and parse them with our own
-// parser above — deliberately not the "tidal-event"/"clock"/"sync"
-// OSC-derived messages the bridge also relays, since those carry flat,
-// already-resolved playback events with no structural grouping, which
-// would defeat tuplet detection (see project notes on this decision).
+// ─── 11. Bridge WebSocket client ─────────────────────────────────────────────
 let bridgeSocket = null;
+let bridgeAutoReconnect = false;
 
-// Same convention used by the bridge/forwarder's own line-extraction so a
-// raw .tidal source maps to the same dN/pattern pairs on both ends.
-const TIDAL_LINE_RE = /\b(d\d+)\b.*?\b(?:sound|s|note|n)\s+"([^"]+)"/g;
+// Captures: dN, the function-chain text between the first `$` and the
+// pattern function, and the quoted mini-notation.
+const TIDAL_LINE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(?:sound|s|note|n)\s+"([^"]+)"/g;
+const ALL_LINE_RE = /^\s*all\s*\$\s*(.+)$/m;
 
-function applyPatternToLine(line, pattern, { flag = false } = {}) {
-  const input = document.getElementById(`liveInput-${line}`);
+// Chain from an `all $ …` line in the source — applies to every line.
+let allChain = [];
+
+function setBridgeDot(state) {
+  document.getElementById('bridgeDot').className = 'live-dot' + (state ? ` ${state}` : '');
+}
+
+function markBridgeUpdate() {
+  document.getElementById('bridgeLastUpdate').textContent = new Date().toLocaleTimeString();
+}
+
+function applyPatternToLine(line, pattern, { flag = false, chain = null } = {}) {
+  const input    = document.getElementById(`liveInput-${line}`);
   const checkbox = document.getElementById(`flag-${line}`);
   if (!input || !checkbox) return;
   input.value = pattern;
   if (flag) checkbox.checked = true;
+
+  const row = input.closest('.live-line-row');
+  if (chain !== null && row) {
+    row.dataset.chain = JSON.stringify(chain);
+    const badge = row.querySelector('.chain-badge');
+    if (badge) {
+      badge.innerHTML = chain.map(t =>
+        `<span class="chain-tag${t.fn === '?' ? ' off' : ''}" title="${t.fn === '?' ? 'not translated on staff (graphic score shows it)' : 'translated'}">${t.raw}</span>`
+      ).join('');
+    }
+  }
 }
 
 function handleBridgeMessage(message) {
@@ -1110,16 +2082,36 @@ function handleBridgeMessage(message) {
 
   if (message.type === 'bridge-status') {
     bridgeStatusEl.textContent = `Connected (${message.clients} client${message.clients === 1 ? '' : 's'})`;
-    bridgeStatusEl.className = 'status ok';
     return;
   }
 
   if (message.type === 'source-update' && typeof message.source === 'string') {
+    // Matches both `setcps (135/60/4)` and bare `setcps 0.55`
+    const cpsM = message.source.match(/setcps\s*\(([^)]+)\)/) ||
+                 message.source.match(/setcps\s+([0-9.]+(?:\s*\/\s*[0-9.]+)*)/);
+    if (cpsM) {
+      try {
+        const v = Function('"use strict"; return (' + cpsM[1] + ')')();
+        if (Number.isFinite(v) && v > 0) {
+          document.getElementById('cpsInput').value = v.toFixed(4);
+          updateCpsDisplay();
+          if (playback.playing) { playStop(); playStart(); }
+        }
+      } catch {}
+    }
+    markBridgeUpdate();
+
+    const allM = message.source.match(ALL_LINE_RE);
+    allChain = allM ? parseChain(allM[1]) : [];
+
     TIDAL_LINE_RE.lastIndex = 0;
     let match;
     while ((match = TIDAL_LINE_RE.exec(message.source))) {
-      const [, line, pattern] = match;
-      applyPatternToLine(line, pattern, { flag: line === message.selectedLine });
+      const [, line, chainText, pattern] = match;
+      applyPatternToLine(line, pattern, {
+        flag: line === message.selectedLine,
+        chain: parseChain(chainText)
+      });
     }
     scheduleLiveRender();
     return;
@@ -1127,74 +2119,133 @@ function handleBridgeMessage(message) {
 
   if (message.type === 'pattern-update' && message.line && typeof message.pattern === 'string') {
     applyPatternToLine(message.line, message.pattern, { flag: true });
+    markBridgeUpdate();
     scheduleLiveRender();
     return;
   }
 
-  // sync / clock / tidal-event: ignored by design, see comment above.
+  // Real Tidal playback events + clock — used by the graphic score and the
+  // cycle pulse/playhead. Deliberately NOT used for staff notation (flat,
+  // float-based events can't drive tuplet detection — see README).
+  if (message.type === 'tidal-event') { recordTidalEvent(message); return; }
+  if (message.type === 'clock')       { applyRemoteClock(message);  return; }
 }
 
 function connectBridge() {
   const statusEl = document.getElementById('bridgeStatus');
+  const btn = document.getElementById('bridgeConnectBtn');
   const url = document.getElementById('bridgeUrlInput').value.trim() || 'ws://127.0.0.1:8766';
 
-  if (bridgeSocket) { bridgeSocket.close(); bridgeSocket = null; }
-
-  let socket;
-  try {
-    socket = new WebSocket(url);
-  } catch (e) {
-    statusEl.textContent = 'Invalid bridge URL: ' + e.message;
-    statusEl.className = 'status err';
+  if (bridgeSocket && (bridgeSocket.readyState === WebSocket.OPEN || bridgeSocket.readyState === WebSocket.CONNECTING)) {
+    bridgeAutoReconnect = false;
+    bridgeSocket.close();
+    bridgeSocket = null;
+    btn.textContent = 'Connect bridge';
+    setBridgeDot('');
+    statusEl.textContent = 'Bridge idle';
     return;
   }
-  bridgeSocket = socket;
 
+  bridgeAutoReconnect = true;
+
+  let socket;
+  try { socket = new WebSocket(url); }
+  catch (e) {
+    statusEl.textContent = 'Invalid URL: ' + e.message;
+    setBridgeDot('error'); return;
+  }
+  bridgeSocket = socket;
+  btn.textContent = 'Disconnect';
+  setBridgeDot('connecting');
   statusEl.textContent = 'Connecting…';
-  statusEl.className = 'status info';
 
   socket.addEventListener('open', () => {
+    setBridgeDot('connected');
     statusEl.textContent = 'Bridge connected';
-    statusEl.className = 'status ok';
   });
+
   socket.addEventListener('close', () => {
-    if (bridgeSocket === socket) {
-      statusEl.textContent = 'Bridge disconnected';
-      statusEl.className = 'status info';
+    if (bridgeSocket !== socket) return;
+    bridgeSocket = null;
+    btn.textContent = 'Connect bridge';
+    if (bridgeAutoReconnect) {
+      setBridgeDot('connecting');
+      statusEl.textContent = 'Reconnecting in 2s…';
+      setTimeout(() => { if (bridgeAutoReconnect) connectBridge(); }, 2000);
+    } else {
+      setBridgeDot('');
+      statusEl.textContent = 'Bridge idle';
     }
   });
+
   socket.addEventListener('error', () => {
-    statusEl.textContent = 'Bridge connection error — is tidal-score-bridge.js running?';
-    statusEl.className = 'status err';
+    setBridgeDot('error');
+    statusEl.textContent = 'Connection error — bridge running?';
   });
-  socket.addEventListener('message', (event) => {
-    try {
-      handleBridgeMessage(JSON.parse(event.data));
-    } catch (e) {
-      console.error('Bad bridge message:', e);
-    }
+
+  socket.addEventListener('message', event => {
+    try { handleBridgeMessage(JSON.parse(event.data)); }
+    catch (e) { console.error('Bad bridge message:', e); }
   });
 }
 
+// ─── 12. Wire up UI ───────────────────────────────────────────────────────────
 document.getElementById('bridgeConnectBtn').addEventListener('click', connectBridge);
-
-// Wire up UI
 document.getElementById('convertBtn').disabled = true;
 document.getElementById('convertBtn').addEventListener('click', renderPattern);
-document.getElementById('patInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') renderPattern();
+document.getElementById('patInput').addEventListener('keydown', e => { if (e.key === 'Enter') renderPattern(); });
+
+document.getElementById('playBtn').addEventListener('click', playStart);
+document.getElementById('stopBtn').addEventListener('click', playStop);
+document.getElementById('syncBtn').addEventListener('click', playSync);
+document.getElementById('prevCycle').addEventListener('click', () => stepCycle(-1));
+document.getElementById('nextCycle').addEventListener('click', () => stepCycle(1));
+document.getElementById('cycleIndex').addEventListener('change', () => {
+  const v = Math.max(0, parseInt(document.getElementById('cycleIndex').value) || 0);
+  playback.cycleIndex = v;
+  renderCurrent();
+});
+document.getElementById('cpsInput').addEventListener('input', () => {
+  updateCpsDisplay();
+  if (playback.playing) { playStop(); playStart(); }
 });
 
-document.querySelectorAll('.preset-btn').forEach(btn => {
+['cyclesOpt', 'modeOpt', 'pitchInputOpt', 'clefOpt'].forEach(id => {
+  document.getElementById(id).addEventListener('change', renderCurrent);
+});
+
+document.querySelectorAll('.preset-btn[data-p]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.getElementById('patInput').value = btn.dataset.p;
-    if (btn.dataset.mode) document.getElementById('modeOpt').value = btn.dataset.mode;
+    if (btn.dataset.mode)   document.getElementById('modeOpt').value   = btn.dataset.mode;
     if (btn.dataset.cycles) document.getElementById('cyclesOpt').value = btn.dataset.cycles;
     renderPattern();
   });
 });
 
+document.getElementById('viewOpt').addEventListener('change', applyViewOption);
+
+// Performer mode + theme toggles. Both are pure CSS class switches so they
+// can be hit mid-performance without interrupting rendering or the clock.
+document.getElementById('performerBtn').addEventListener('click', () => {
+  const on = document.body.classList.toggle('performer');
+  document.getElementById('performerBtn').textContent = on ? '🎭 Exit' : '🎭 Performer';
+});
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const dark = document.body.classList.toggle('dark');
+  document.getElementById('themeBtn').textContent = dark ? '◐ Light' : '◐ Dark';
+});
+// Esc also leaves performer mode (a performer shouldn't hunt for a button)
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.body.classList.contains('performer'))
+    document.getElementById('performerBtn').click();
+});
+
 // Boot
+updateCpsDisplay();
+updateCycleUI(null);
+applyViewOption();
+requestAnimationFrame(masterLoop);
 initVerovio();
 </script>
 </body>
