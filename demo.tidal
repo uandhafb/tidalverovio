@@ -39,10 +39,11 @@ d2 $ jux rev $ note "c5 d5 e5 g5" # sound "superpiano"
 --      changes per cycle, in sync with what you hear
 d2 $ every 2 (jux rev) $ note "c5 d5 e5 g5" # sound "superpiano"
 
--- 9 ── DEGRADE, LIVE: grey noteheads = probability (darker = likelier).
+-- 9 ── DEGRADE, LIVE: grey noteheads; darker = more likely to sound
+--      (?0.1 = 10% chance of being dropped, ?0.7 = 70% dropped).
 --      Watch them turn BLACK the instant they actually play —
 --      different every cycle. (Mode = Rhythm again)
-d1 $ s "bd?0.9 sn? hh?0.2 cp?"
+d1 $ s "bd?0.1 sn? hh?0.7 cp?"
 
 -- 10 ─ EVERYTHING AT ONCE: multiple lines, multiple staves.
 --      Flag d1+d2+d3 in the browser (or evaluate each once).

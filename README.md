@@ -88,7 +88,7 @@ The staff has two sources, switchable live (**Staff source** selector):
 
 Function chains written before the quoted pattern (e.g. `d1 $ every 4 rev $ fast 2 $ s "bd sn"`) are detected and — where honestly possible — translated onto the staff. Each live line shows its chain as badges: **green** = translated, **grey/struck** = shown only in the graphic score.
 
-Translated (deterministic structural transforms): `rev`, `palindrome`, `fast N`/`density N`/`hurry N` (hurry is notation-equivalent to fast — its sample-speed aspect doesn't change rhythm), `ply N`, `every N f`, `repeatCycles N`, `iter N` (exact when the rotation lands on an element boundary), `jux f` (rendered as two simultaneous voices in one staff), and a global `all $ f` line (applies to every flagged line). Chains also work typed directly into the playground or a live-line row.
+Translated (deterministic structural transforms): `rev`, `palindrome`, `fast N`/`density N`/`hurry N` (hurry is notation-equivalent to fast — its sample-speed aspect doesn't change rhythm), `ply N`, `degradeBy X`/`unDegradeBy X` (grey shading, same as `?`), `every N f`, `repeatCycles N`, `iter N` (exact when the rotation lands on an element boundary), `jux f` (rendered as two simultaneous voices in one staff), and a global `all $ f` line (applies to every flagged line). Chains also work typed directly into the playground or a live-line row.
 
 Deliberately **not** translated on the staff (the graphic score shows their real result): random functions (`sometimes`, `irand`, `shuffle`, `scramble`), sample-slicing (`chop`, `striate`), whole-line `slow N` (needs cross-barline tie slicing — future work), time-slicing functions (`off`, `stut`, `compress`, `zoom`, `chunk`, `rot`, `within`), `inv` (needs boolean-pattern support), and audio params (`cut`, `gain`, `pan`…) which don't change rhythm structure.
 
@@ -115,7 +115,7 @@ Deliberately **not** translated on the staff (the graphic score shows their real
 | `a:3` | sample index — treated as the same instrument family (`bd:3` sits at bd's drum position) |
 | `a(k,n)` | Euclidean rhythm — Bjorklund: k hits over n steps |
 | `a(k,n,r)` | Euclidean rhythm with rotation offset r |
-| `a?` / `a?0.2` | degrade — probabilistic; shown grey in the score, shade scaled to the probability; during a live session the notehead turns black the moment it actually plays |
+| `a?` / `a?0.2` | degrade — the number is the probability of REMOVAL (Tidal semantics: `a?0.2` plays 80% of the time); shown grey in the score, darker = more likely to sound; during a live session the notehead turns black the moment it actually plays |
 
 ## Architecture notes
 
