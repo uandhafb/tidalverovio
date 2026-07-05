@@ -834,7 +834,8 @@ function resolveNode(el, cycleIndex) {
       const phase = ((cycleIndex % el.n) + el.n) % el.n;
       el = phase === 0 ? el.inner : { type: 'leaf', value: '~', weight: 1 };
     } else {
-      cycleIndex = el.map(cycleIndex);
+      // JSON round-trips (chain storage) drop functions — treat as identity
+      cycleIndex = typeof el.map === 'function' ? el.map(cycleIndex) : cycleIndex;
       el = el.inner;
     }
   }
@@ -1106,20 +1107,69 @@ function parseTokens(tokens, pos, closeTok = null) {
 // are translated — random functions (sometimes, irand…) and effects (cut,
 // gain…) can't honestly live on a staff; the graphic score shows those.
 
-const SUPPORTED_FNS = new Set(['rev', 'palindrome', 'fast', 'density', 'hurry', 'ply', 'every', 'repeatCycles', 'jux', 'iter', 'degradeBy', 'unDegradeBy']);
+const SUPPORTED_FNS = new Set(['rev', 'palindrome', 'fast', 'density', 'hurry', 'ply', 'every', 'repeatCycles', 'jux', 'juxBy', 'superimpose', 'iter', "iter'", 'degradeBy', 'unDegradeBy', 'euclid', 'euclidInv', 'euclidOff', 'whenmod', 'rot', 'always', 'never', 'struct']);
 
 // One segment ("every 4 rev") → descriptor {fn, n?, inner?} or {fn:'?', raw}.
 // Parentheses act as grouping only, so "every 2 (jux rev)" parses like
 // "every 2 jux rev".
 function parseChainSegment(seg) {
+  // struct carries a quoted boolean pattern — grab it before word-splitting
+  const structM = seg.trim().match(/^struct\s+"([^"]+)"$/);
+  if (structM) {
+    try {
+      const bool = parseTokens(tokenise(structM[1]), 0).layers[0];
+      return { fn: 'struct', bool, raw: seg.trim() };
+    } catch { return { fn: '?', raw: seg.trim() }; }
+  }
+
   const words = seg.replace(/[()]/g, ' ').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return null;
   const [head, ...rest] = words;
   if (!SUPPORTED_FNS.has(head)) return { fn: '?', raw: seg.trim() };
 
   if (head === 'rev' || head === 'palindrome') return { fn: head, raw: seg.trim() };
+  if (head === 'always') {
+    const inner = parseChainSegment(rest.join(' '));
+    if (!inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { ...inner, raw: seg.trim() };
+  }
+  if (head === 'never') return { fn: 'never', raw: seg.trim() };
 
-  if (head === 'fast' || head === 'density' || head === 'hurry' || head === 'ply' || head === 'iter' || head === 'repeatCycles') {
+  if (head === 'superimpose') {
+    const inner = parseChainSegment(rest.join(' '));
+    if (!inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'superimpose', inner, raw: seg.trim() };
+  }
+
+  if (head === 'juxBy') {
+    const inner = parseChainSegment(rest.slice(1).join(' '));
+    if (!inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'jux', inner, raw: seg.trim() }; // stereo width is not notation
+  }
+
+  if (head === 'euclid' || head === 'euclidInv' || head === 'euclidOff') {
+    const k = parseInt(rest[0]), n = parseInt(rest[1]);
+    const o = head === 'euclidOff' ? parseInt(rest[2]) : 0;
+    if (!Number.isInteger(k) || !Number.isInteger(n) || n < 1 || !Number.isInteger(o))
+      return { fn: '?', raw: seg.trim() };
+    return { fn: head, k, n, o, raw: seg.trim() };
+  }
+
+  if (head === 'whenmod') {
+    const a = parseInt(rest[0]), b = parseInt(rest[1]);
+    const inner = parseChainSegment(rest.slice(2).join(' '));
+    if (!Number.isInteger(a) || a < 1 || !Number.isInteger(b) || !inner || inner.fn === '?')
+      return { fn: '?', raw: seg.trim() };
+    return { fn: 'whenmod', a, b, inner, raw: seg.trim() };
+  }
+
+  if (head === 'rot') {
+    const n = parseInt(rest[0]);
+    if (!Number.isInteger(n)) return { fn: '?', raw: seg.trim() };
+    return { fn: 'rot', n, raw: seg.trim() };
+  }
+
+  if (head === 'fast' || head === 'density' || head === 'hurry' || head === 'ply' || head === 'iter' || head === "iter'" || head === 'repeatCycles') {
     const n = parseInt(rest[0]);
     if (!Number.isInteger(n) || n < 1) return { fn: '?', raw: seg.trim() };
     // hurry = fast + sample playback speed; the speed part doesn't change
@@ -1206,6 +1256,67 @@ function iterElements(elements, n, cycleIndex) {
   return [...elements.slice(best), ...elements.slice(0, best)];
 }
 
+// Which value of the base pattern is sounding at cycle position p (0..1)?
+function valueAtPosition(events, p) {
+  for (const e of events) {
+    if (e.begin.toFloat() <= p + 1e-9 && p < e.end.toFloat() - 1e-9) return e.value;
+  }
+  let v = '~';
+  for (const e of events) if (e.begin.toFloat() <= p + 1e-9) v = e.value;
+  return v;
+}
+
+// struct: clone the boolean tree, filling truthy leaves with the base
+// pattern's value at that time position, falsy leaves with rests. The
+// boolean pattern's structure (groups, tuplets) becomes the notation.
+function structApply(boolEls, events, offset, length, cycleIndex) {
+  const total = boolEls.reduce((s, e) => s + e.weight, 0);
+  let cursor = offset;
+  const out = [];
+  for (const raw of boolEls) {
+    const elLen = length.mul(new Fraction(raw.weight, total));
+    const { el, c } = resolveNode(raw, cycleIndex);
+    if (el.type === 'leaf') {
+      const truthy = el.value === 't' || el.value === 'true' || el.value === '1';
+      out.push({
+        type: 'leaf',
+        value: truthy ? valueAtPosition(events, cursor.toFloat()) : '~',
+        weight: raw.weight
+      });
+    } else {
+      out.push({ type: 'group', children: structApply(el.children, events, cursor, elLen, c), weight: raw.weight });
+    }
+    cursor = cursor.add(elLen);
+  }
+  return out;
+}
+
+// rot n: rotate the VALUES among sounding leaves while the rhythm (and
+// every rest) stays exactly where it is.
+function rotValues(elements, n) {
+  const values = [];
+  (function collect(els) {
+    for (const e of els) {
+      if (e.type === 'leaf') { if (e.value !== '~' && e.value !== 'r') values.push(e.value); }
+      else if (e.alternatives) collect(e.alternatives);
+      else if (e.children) collect(e.children);
+      else if (e.inner) collect([e.inner]);
+    }
+  })(elements);
+  if (!values.length) return elements;
+  const L = values.length;
+  let idx = 0;
+  const pick = () => values[((idx++ + n) % L + L) % L];
+  const rebuild = els => els.map(e => {
+    if (e.type === 'leaf') return (e.value === '~' || e.value === 'r') ? e : { ...e, value: pick() };
+    if (e.alternatives) return { ...e, alternatives: rebuild(e.alternatives) };
+    if (e.children) return { ...e, children: rebuild(e.children) };
+    if (e.inner) return { ...e, inner: rebuild([e.inner])[0] };
+    return e;
+  });
+  return rebuild(elements);
+}
+
 // Apply one transform to a single layer (a sequence of elements).
 function applyTransform(elements, t, cycleIndex) {
   switch (t.fn) {
@@ -1217,6 +1328,30 @@ function applyTransform(elements, t, cycleIndex) {
     // unDegradeBy x: each event KEPT with probability x.
     case 'degradeBy':   return elements.map(el => applyProb(el, 1 - t.n));
     case 'unDegradeBy': return elements.map(el => applyProb(el, t.n));
+    case "iter'":       return iterElements(elements, t.n, -cycleIndex);
+    case 'rot':         return rotValues(elements, t.n);
+    case 'never':       return elements;
+    case 'euclid':
+    case 'euclidInv':
+    case 'euclidOff': {
+      const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
+      let hits = euclidPattern(t.k, t.n);
+      if (t.o) {
+        const r = ((t.o % hits.length) + hits.length) % hits.length;
+        hits = [...hits.slice(r), ...hits.slice(0, r)];
+      }
+      if (t.fn === 'euclidInv') hits = hits.map(h => !h);
+      const children = hits.map((hit, i) => ({
+        type: 'leaf',
+        value: hit ? valueAtPosition(events, i / t.n) : '~',
+        weight: 1
+      }));
+      return [{ type: 'group', children, weight: 1 }];
+    }
+    case 'struct': {
+      const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
+      return structApply(t.bool, events, new Fraction(0), new Fraction(1), cycleIndex);
+    }
     case 'fast': {
       // N copies squeezed into one cycle; copy k sees cycle c*N+k so that
       // alternation (<a b>) and slow (a/2) keep advancing inside the measure.
@@ -1246,10 +1381,13 @@ function applyTransform(elements, t, cycleIndex) {
 // layer-level transforms — this is what lets "every 2 (jux rev)" nest:
 // on matching cycles the jux fires and the staff grows a second voice.
 function applyTransformLayers(layers, t, cycleIndex) {
-  if (t.fn === 'jux')
+  if (t.fn === 'jux' || t.fn === 'superimpose')
     return layers.flatMap(layer => [layer, ...applyTransformLayers([layer], t.inner, cycleIndex)]);
   if (t.fn === 'every')
     return ((cycleIndex % t.n) + t.n) % t.n === 0
+      ? applyTransformLayers(layers, t.inner, cycleIndex) : layers;
+  if (t.fn === 'whenmod')
+    return ((cycleIndex % t.a) + t.a) % t.a >= t.b
       ? applyTransformLayers(layers, t.inner, cycleIndex) : layers;
   return layers.map(layer => applyTransform(layer, t, cycleIndex));
 }
