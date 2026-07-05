@@ -30,6 +30,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // The locally-bundled Verovio engine — index.html loads it from here,
+    // so the whole system runs with no internet.
+    if (req.method === "GET" && req.url === "/verovio-toolkit-wasm.js") {
+      serveFile(res, path.join(ROOT, "verovio-toolkit-wasm.js"), "application/javascript; charset=utf-8");
+      return;
+    }
+
     if (req.method === "GET" && req.url === "/health") {
       writeJson(res, 200, { ok: true, clients: clients.size, watch: WATCH_FILE || null });
       return;

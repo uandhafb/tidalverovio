@@ -1547,7 +1547,16 @@ async function initVerovio() {
   const pillText = document.getElementById('verovioStatus');
   const pillDot  = document.getElementById('verovioDot');
   try {
-    await new Promise(resolve => { Module.onRuntimeInitialized = resolve; });
+    // Wait for the WASM runtime, but don't rely only on the callback: with
+    // the locally-served engine, initialization can finish BEFORE this code
+    // runs, and onRuntimeInitialized would then never fire. Poll calledRun
+    // as a fallback so the race can't be lost.
+    await new Promise(resolve => {
+      Module.onRuntimeInitialized = resolve;
+      const iv = setInterval(() => {
+        if (Module.calledRun) { clearInterval(iv); resolve(); }
+      }, 50);
+    });
     vrvToolkit = new verovio.toolkit();
     pillText.textContent = 'Verovio ready';
     pillDot.className = 'status-dot ok';
