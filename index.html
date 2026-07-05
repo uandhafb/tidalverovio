@@ -657,9 +657,20 @@
           </select>
         </label>
         <label class="field">
+          Staff source
+          <select id="staffSourceOpt">
+            <option value="typed" selected>Typed pattern</option>
+            <option value="played">Played (live)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="control-grid">
+        <label class="field">
           Clock
           <input id="clockSource" type="text" value="internal" readonly>
         </label>
+        <label class="field">&nbsp;<span class="hint">played = notates real events, grid-quantized</span></label>
       </div>
 
       <label class="field">
@@ -1534,6 +1545,50 @@ function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIn
   return items;
 }
 
+// ─── Played-staff quantizer ──────────────────────────────────────────────────
+// Turns one cycle of real OSC events (flat float timings) into a weighted
+// element list the notation engine can render exactly. Grid denominators
+// are tried smallest-first; binary and triplet grids notate exactly (the
+// weighted-tuplet machinery handles non-power-of-2 totals), anything that
+// misses every grid falls back to 48 ticks and is counted as approximated.
+// Simple grids first — a coarse binary grid must not "absorb" triplet
+// timings before the 3/6/12 grids get their chance (tolerance 1/128).
+const GRID_CANDIDATES = [4, 8, 3, 16, 6, 12, 5, 32, 24, 10, 7, 48, 20, 14, 9];
+let playedApproximated = 0;
+
+function eventsToElements(events) {
+  if (!events.length) return [{ type: 'leaf', value: '~', weight: 1 }];
+  const evs = [...events].sort((a, b) => a.begin - b.begin);
+
+  let D = null;
+  for (const d of GRID_CANDIDATES) {
+    if (evs.every(e => Math.abs(e.begin - Math.round(e.begin * d) / d) < 1 / 128)) { D = d; break; }
+  }
+  if (D === null) { D = 48; playedApproximated++; }
+
+  const slots = [];
+  for (let i = 0; i < evs.length; i++) {
+    let start = Math.round(evs[i].begin * D);
+    let end = Math.round((evs[i].begin + evs[i].dur) * D);
+    const nextStart = i + 1 < evs.length ? Math.round(evs[i + 1].begin * D) : D;
+    end = Math.min(Math.max(end, start + 1), Math.max(nextStart, start + 1), D);
+    if (start >= D) continue;
+    if (slots.length && start < slots[slots.length - 1].end) start = slots[slots.length - 1].end;
+    if (start >= end) continue; // simultaneous event at same tick: keep first
+    slots.push({ value: evs[i].value, start, end });
+  }
+
+  const elements = [];
+  let cursor = 0;
+  for (const s of slots) {
+    if (s.start > cursor) elements.push({ type: 'leaf', value: '~', weight: s.start - cursor });
+    elements.push({ type: 'leaf', value: s.value, weight: s.end - s.start });
+    cursor = s.end;
+  }
+  if (cursor < D) elements.push({ type: 'leaf', value: '~', weight: D - cursor });
+  return elements;
+}
+
 // Multiple simultaneous patterns → one <staff> each. `startCycle` picks
 // which absolute cycle indices resolve alternation/slow — this is what
 // makes the notes change as the playback clock advances.
@@ -1541,12 +1596,17 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   noteIdSeq = 1;
   liveProbNotes = [];
   iterApproximated = 0;
+  playedApproximated = 0;
   const parsed = patterns.map(p => {
+    const om = (p.label || '').match(/^d(\d+)$/);
+    // Prebuilt per-cycle layers (played-staff mode) bypass the text parser.
+    if (p.layersByCycle) {
+      return { label: p.label, layersByCycle: p.layersByCycle, chain: [], orbit: om ? parseInt(om[1]) - 1 : null };
+    }
     // A '$' in the source means a function chain precedes the mini-notation
     // (typed directly); bridge-fed lines carry their chain in p.chain.
     const { chain: srcChain, pattern } = splitChainAndPattern(p.src);
     const layers = promotePoly(parseTokens(tokenise(pattern), 0).layers);
-    const om = (p.label || '').match(/^d(\d+)$/);
     return {
       label: p.label,
       baseLayers: layers,
@@ -1563,10 +1623,18 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   let drumMap = null;
   if (isRhythm) {
     const values = new Set();
-    for (const p of parsed) for (const layer of p.baseLayers) collectLeafValues(layer, values);
+    for (const p of parsed) {
+      if (p.layersByCycle) {
+        for (let c = startCycle; c < startCycle + numCycles; c++)
+          for (const layer of p.layersByCycle(c)) collectLeafValues(layer, values);
+      } else {
+        for (const layer of p.baseLayers) collectLeafValues(layer, values);
+      }
+    }
     if (values.size > 1) drumMap = buildDrumMap(values);
   }
   const isDrumKit = drumMap !== null;
+  playedApproximated = 0; // drum-map pre-pass may have walked the same events
 
   const staffLines = isRhythm ? (isDrumKit ? '5' : '1') : '5';
   const clefShape  = isRhythm ? 'perc' : (clef === 'treble' ? 'G' : 'F');
@@ -1587,7 +1655,7 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   for (let c = startCycle; c < startCycle + numCycles; c++) {
     const measureN = c - startCycle + 1;
     const staffEls = parsed.map((p, idx) => {
-      const cycleLayers = applyChain(p.baseLayers, p.chain, c);
+      const cycleLayers = p.layersByCycle ? p.layersByCycle(c) : applyChain(p.baseLayers, p.chain, c);
       const layerEls = cycleLayers.map((layerElements, li) => {
         const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, c, pitchInput, new Fraction(c), p.orbit);
         return `\n          <layer n="${li + 1}">\n            ${items.join('\n            ')}\n          </layer>`;
@@ -1615,7 +1683,7 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   </score></mdiv></body></music>
 </mei>`;
 
-  stats.approximated += iterApproximated;
+  stats.approximated += iterApproximated + playedApproximated;
   return { mei, stats };
 }
 
@@ -1626,6 +1694,7 @@ function patternToMEI(src, numCycles, opts = {}) {
 // Shared by the timeline and graphic fallback: a pattern's layers for one
 // specific cycle, with its function chain applied.
 function patternLayersForCycle(p, cycleIndex) {
+  if (p.layersByCycle) return p.layersByCycle(cycleIndex);
   const { chain: srcChain, pattern } = splitChainAndPattern(p.src);
   const layers = promotePoly(parseTokens(tokenise(pattern), 0).layers);
   return applyChain(layers, [...(p.chain || []), ...srcChain], cycleIndex);
@@ -1814,6 +1883,13 @@ function setPlayBtnState(playing) {
 // Renders whichever source is active: flagged live lines take priority,
 // otherwise the scratch pattern re-renders (so Play works for both).
 function renderCurrent() {
+  // Played-staff mode always goes through renderLivePattern — its source is
+  // the OSC event store, not the flagged lines or the scratch box.
+  if (document.getElementById('staffSourceOpt').value === 'played') {
+    renderLivePattern();
+    scheduleGraphicRender();
+    return;
+  }
   const flagged = getFlaggedLines();
   if (flagged.length > 0) renderLivePattern();
   else if (document.getElementById('patInput').value.trim()) renderPattern();
@@ -1918,7 +1994,28 @@ function renderLivePattern() {
   const mode       = document.getElementById('modeOpt').value;
   const pitchInput = document.getElementById('pitchInputOpt').value;
   const statusEl   = document.getElementById('status');
-  const patterns   = getFlaggedLines();
+  let patterns     = getFlaggedLines();
+
+  // Played (live) staff: notate the real OSC events of the displayed
+  // cycles, one staff per orbit seen — everything Tidal actually plays
+  // (chunk, sometimes, chop...) becomes notation, grid-quantized.
+  if (document.getElementById('staffSourceOpt').value === 'played') {
+    const orbits = new Set();
+    for (let ci = playback.cycleIndex; ci < playback.cycleIndex + cycles; ci++)
+      for (const ev of (liveEvents.byCycle.get(ci) || [])) orbits.add(ev.orbit);
+    if (orbits.size === 0) {
+      statusEl.textContent = 'Played staff: waiting for Tidal events…';
+      statusEl.className = 'render-status';
+      renderTimeline(getFlaggedLines(), cycles, playback.cycleIndex);
+      scheduleGraphicRender();
+      return;
+    }
+    patterns = [...orbits].sort((a, b) => a - b).map(orbit => ({
+      label: `d${orbit + 1}`,
+      layersByCycle: c => [eventsToElements(
+        (liveEvents.byCycle.get(c) || []).filter(e => e.orbit === orbit))]
+    }));
+  }
 
   if (patterns.length === 0) {
     statusEl.textContent = 'No lines flagged — check a line to send it to the score';
@@ -1942,7 +2039,7 @@ function renderLivePattern() {
 
     const labels = patterns.map(p => p.label).join(', ');
     updateCycleUI(labels);
-    document.getElementById('patternLabel').textContent = patterns.map(p => p.src).join('   ·   ');
+    document.getElementById('patternLabel').textContent = patterns[0] && patterns[0].layersByCycle ? 'played events (grid-quantized)' : patterns.map(p => p.src).join('   ·   ');
 
     if (stats.rendered === 0) {
       statusEl.textContent = `No pitch data in (${labels}) — try Rhythm mode`; statusEl.className = 'render-status err';
@@ -2084,6 +2181,7 @@ function recordTidalEvent(ev) {
     dur: Math.max(durCycles, 0.005)
   });
   resolveProbNotes(orbitNum, cycleFloat);
+  if (document.getElementById('staffSourceOpt').value === 'played') schedulePlayedStaff();
 
   for (const key of liveEvents.byCycle.keys())
     if (key < ci - 32) liveEvents.byCycle.delete(key);
@@ -2436,6 +2534,15 @@ document.querySelectorAll('.preset-btn[data-p]').forEach(btn => {
 });
 
 document.getElementById('viewOpt').addEventListener('change', applyViewOption);
+document.getElementById('staffSourceOpt').addEventListener('change', renderCurrent);
+
+// Played-staff re-render, trailing-coalesced: Verovio layout costs tens of
+// ms, so cap staff refreshes at ~5/s while events stream in.
+let playedStaffTimer = null;
+function schedulePlayedStaff() {
+  if (playedStaffTimer) return;
+  playedStaffTimer = setTimeout(() => { playedStaffTimer = null; renderLivePattern(); }, 180);
+}
 
 // Performer mode + theme toggles. Both are pure CSS class switches so they
 // can be hit mid-performance without interrupting rendering or the clock.

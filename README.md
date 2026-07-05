@@ -58,6 +58,13 @@ Then open **http://localhost:8000/index.html**. Stop the server with `Ctrl+C`. (
 - **Live multi-line input with flagging.** A panel of `d1`–`d16` pattern lines; check a line to send it to the score. Multiple flagged lines render as separate, labeled staves playing together.
 - **Auto-reconnect.** The WebSocket bridge client reconnects automatically every 2s if the bridge restarts.
 
+## Staff source: Typed vs Played
+
+The staff has two sources, switchable live (**Staff source** selector):
+
+- **Typed pattern** (default): notates the mini-notation text with exact structural fidelity — tuplets, ties, degrade shading. Functions outside the translated set don't appear (grey badge).
+- **Played (live)**: notates the **real OSC events** of the current cycle, per orbit, notes appearing as they sound. Everything Tidal plays becomes notation — `chunk`, `sometimes`, `chop`, all of it — because the notes are reconstructed from actual playback. Trade-off: timings are quantized to a musical grid (binary and tuplet grids are detected and notated exactly, e.g. real triplet/quintuplet brackets; anything that misses every grid is flagged "approximated").
+
 ## Tidal functions on the staff
 
 Function chains written before the quoted pattern (e.g. `d1 $ every 4 rev $ fast 2 $ s "bd sn"`) are detected and — where honestly possible — translated onto the staff. Each live line shows its chain as badges: **green** = translated, **grey/struck** = shown only in the graphic score.
