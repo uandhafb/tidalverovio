@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Strudel → Score</title>
-<script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js"></script>
+<!-- Local copy (self-contained, WASM embedded) so the score runs with no
+     internet — the verovio.org CDN stalls intermittently, unacceptable for
+     a live performance. -->
+<script src="verovio-toolkit-wasm.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -901,8 +904,14 @@ function parseTokens(tokens, pos, closeTok = null) {
       const weight = op === '@' ? n : 1;
       if (op === '!' || op === null) {
         const repeat = op === '!' ? Math.round(n) : 1;
-        for (let i = 0; i < repeat; i++)
-          current().push({ type: 'group', children: subElements, weight });
+        for (let i = 0; i < repeat; i++) {
+          const g = { type: 'group', children: subElements, weight };
+          // Remember the original parallel layers: if this bracket turns out
+          // to BE the whole pattern (e.g. "[bd(2,8), hh(5,8)]"), promotePoly
+          // restores them as true simultaneous voices.
+          if (op === null && sub.layers.length > 1) g.polyLayers = sub.layers;
+          current().push(g);
+        }
       } else if (op === '*') {
         const repeated = [];
         for (let i = 0; i < Math.round(n); i++) repeated.push(...subElements);
@@ -1036,6 +1045,16 @@ function parseChain(text) {
   return text.split('$').map(parseChainSegment).filter(Boolean);
 }
 
+// "[a, b]" as the entire pattern is the same as top-level "a, b" — restore
+// the bracket's parallel layers as real voices instead of a flat sequence.
+function promotePoly(layers) {
+  if (layers.length === 1 && layers[0].length === 1) {
+    const el = layers[0][0];
+    if (el.type === 'group' && el.polyLayers) return el.polyLayers;
+  }
+  return layers;
+}
+
 // Deep-reverse a sequence: children order flips at every level. Alternation
 // keeps its per-cycle pick order (rev reverses time, not the cycle picks).
 function revElements(elements) {
@@ -1159,7 +1178,7 @@ function elementsToEvents(elements, offset, length, cycleIndex = 0) {
 
 function evalPattern(src, numCycles = 1, startCycle = 0) {
   const { chain, pattern } = splitChainAndPattern(src);
-  const { layers } = parseTokens(tokenise(pattern), 0);
+  const layers = promotePoly(parseTokens(tokenise(pattern), 0).layers);
   const allEvents = [];
   for (let c = startCycle; c < startCycle + numCycles; c++) {
     const offset = new Fraction(c - startCycle);
@@ -1242,6 +1261,72 @@ function clefMiddlePitch(clef) {
   return clef === 'treble' ? { pname: 'b', oct: 4 } : { pname: 'd', oct: 3 };
 }
 
+// ─── Drum-kit staff positions ────────────────────────────────────────────────
+// Standard drum notation: each instrument owns a vertical position on the
+// percussion staff; cymbals/hats use x-shaped noteheads. Known Tidal sample
+// names map to their conventional spots; unknown names get free positions in
+// first-seen order.
+const DRUM_MAP = {
+  bd: { pname: 'f', oct: 4, head: null }, // kick — low space
+  lt: { pname: 'a', oct: 4, head: null }, // low tom
+  mt: { pname: 'b', oct: 4, head: null }, // mid tom — middle line
+  sn: { pname: 'c', oct: 5, head: null }, // snare — 3rd space
+  cp: { pname: 'c', oct: 5, head: 'x' },  // clap — snare spot, x head
+  ht: { pname: 'd', oct: 5, head: null }, // high tom
+  rd: { pname: 'e', oct: 5, head: 'x' },  // ride
+  hh: { pname: 'g', oct: 5, head: 'x' },  // closed hat — above top line
+  oh: { pname: 'a', oct: 5, head: 'x' },  // open hat
+  cy: { pname: 'b', oct: 5, head: 'x' },  // cymbal
+  cr: { pname: 'b', oct: 5, head: 'x' },  // crash
+};
+const DRUM_FALLBACK_POOL = [
+  { pname: 'e', oct: 4, head: null }, { pname: 'g', oct: 4, head: null },
+  { pname: 'b', oct: 4, head: null }, { pname: 'd', oct: 5, head: null },
+  { pname: 'f', oct: 5, head: null }, { pname: 'a', oct: 4, head: null },
+  { pname: 'c', oct: 5, head: null }, { pname: 'e', oct: 5, head: null },
+];
+
+// Collect every distinct non-rest leaf value in a tree, including all
+// alternation branches and slow/cycled inners (the map must be stable
+// across cycles, so every value that could ever appear gets a spot).
+function collectLeafValues(elements, out) {
+  for (const el of elements) {
+    if (el.type === 'leaf') {
+      if (el.value !== '~' && el.value !== 'r') out.add(el.value);
+    } else if (el.type === 'alt') {
+      collectLeafValues(el.alternatives, out);
+    } else if (el.children) {
+      collectLeafValues(el.children, out);
+    } else if (el.inner) {
+      collectLeafValues([el.inner], out);
+    }
+  }
+}
+
+// pitch-height rank for sorting the legend low → high
+function pitchRank(p) {
+  return p.oct * 7 + 'cdefgab'.indexOf(p.pname);
+}
+
+function buildDrumMap(values) {
+  const map = new Map();
+  const usedRanks = new Set();
+  for (const v of values) {
+    const known = DRUM_MAP[v];
+    if (known) { map.set(v, known); usedRanks.add(pitchRank(known)); }
+  }
+  let poolIdx = 0;
+  for (const v of values) {
+    if (map.has(v)) continue;
+    while (poolIdx < DRUM_FALLBACK_POOL.length && usedRanks.has(pitchRank(DRUM_FALLBACK_POOL[poolIdx]))) poolIdx++;
+    const spot = DRUM_FALLBACK_POOL[poolIdx] || { pname: 'b', oct: 4, head: null };
+    map.set(v, spot);
+    usedRanks.add(pitchRank(spot));
+    poolIdx++;
+  }
+  return map;
+}
+
 // ─── 4. Pattern tree → MEI XML ───────────────────────────────────────────────
 let noteIdSeq = 1;
 
@@ -1259,9 +1344,12 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
   let noteInfo;
   if (mode === 'rhythm') {
     const isRest = value === 'r' || value === '~';
+    // fixedPitch is a function (value → drum-kit position) when the pattern
+    // has multiple distinct samples, or a plain single position otherwise.
+    const spot = typeof fixedPitch === 'function' ? fixedPitch(value) : fixedPitch;
     noteInfo = isRest
       ? { rest: true }
-      : { rest: false, pname: fixedPitch.pname, oct: fixedPitch.oct, acc: '' };
+      : { rest: false, pname: spot.pname, oct: spot.oct, acc: '', head: spot.head || null };
   } else {
     noteInfo = parseNote(value, pitchInput);
     if (!noteInfo) return null;
@@ -1301,7 +1389,8 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
     }
 
     const accAttr = noteInfo.acc ? ` accid="${noteInfo.acc}"` : '';
-    return `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${part.dur}"${dotsAttr}${accAttr}${tieAttr}${colorAttr}/>`;
+    const headAttr = noteInfo.head ? ` head.shape="${noteInfo.head}"` : '';
+    return `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${part.dur}"${dotsAttr}${accAttr}${tieAttr}${colorAttr}${headAttr}/>`;
   });
 
   // Register degraded notes for live resolution (grey → black when the real
@@ -1364,7 +1453,7 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
     // A '$' in the source means a function chain precedes the mini-notation
     // (typed directly); bridge-fed lines carry their chain in p.chain.
     const { chain: srcChain, pattern } = splitChainAndPattern(p.src);
-    const { layers } = parseTokens(tokenise(pattern), 0);
+    const layers = promotePoly(parseTokens(tokenise(pattern), 0).layers);
     const om = (p.label || '').match(/^d(\d+)$/);
     return {
       label: p.label,
@@ -1375,11 +1464,32 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   });
 
   const isRhythm = mode === 'rhythm';
-  const staffLines = isRhythm ? '1' : '5';
+
+  // Rhythm mode: one distinct sample keeps the clean single-line staff;
+  // multiple samples get real drum-kit notation (5-line percussion staff,
+  // one position per instrument, x-heads for hats/cymbals).
+  let drumMap = null;
+  if (isRhythm) {
+    const values = new Set();
+    for (const p of parsed) for (const layer of p.baseLayers) collectLeafValues(layer, values);
+    if (values.size > 1) drumMap = buildDrumMap(values);
+  }
+  const isDrumKit = drumMap !== null;
+
+  const staffLines = isRhythm ? (isDrumKit ? '5' : '1') : '5';
   const clefShape  = isRhythm ? 'perc' : (clef === 'treble' ? 'G' : 'F');
-  const clefLine   = isRhythm ? '1'    : (clef === 'treble' ? '2' : '4');
-  const fixedPitch = clefMiddlePitch(clef);
+  const clefLine   = isRhythm ? (isDrumKit ? '3' : '1') : (clef === 'treble' ? '2' : '4');
+  const singleSpot = { pname: 'b', oct: 4, head: null };
+  const fixedPitch = isRhythm
+    ? (isDrumKit ? (v => drumMap.get(v) || singleSpot) : singleSpot)
+    : clefMiddlePitch(clef);
   const stats = { total: 0, rendered: 0, approximated: 0, probabilistic: 0 };
+  if (isDrumKit) {
+    stats.legend = [...drumMap.entries()]
+      .sort((a, b) => pitchRank(a[1]) - pitchRank(b[1]))
+      .map(([v, p]) => `${v}${p.head === 'x' ? '×' : ''}`)
+      .join(' < ');
+  }
 
   const measureEls = [];
   for (let c = startCycle; c < startCycle + numCycles; c++) {
@@ -1425,7 +1535,7 @@ function patternToMEI(src, numCycles, opts = {}) {
 // specific cycle, with its function chain applied.
 function patternLayersForCycle(p, cycleIndex) {
   const { chain: srcChain, pattern } = splitChainAndPattern(p.src);
-  const { layers } = parseTokens(tokenise(pattern), 0);
+  const layers = promotePoly(parseTokens(tokenise(pattern), 0).layers);
   return applyChain(layers, [...(p.chain || []), ...srcChain], cycleIndex);
 }
 
@@ -1457,6 +1567,7 @@ function approximatedSuffix(stats) {
   const parts = [];
   if (stats.approximated  > 0) parts.push(`${stats.approximated} duration${stats.approximated   === 1 ? '' : 's'} approximated`);
   if (stats.probabilistic > 0) parts.push(`${stats.probabilistic} probabilistic event${stats.probabilistic === 1 ? '' : 's'}`);
+  if (stats.legend) parts.push(`staff low→high: ${stats.legend}`);
   return parts.length ? ' · ' + parts.join(' · ') : '';
 }
 
