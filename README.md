@@ -2,6 +2,25 @@
 
 Converts TidalCycles/Strudel mini-notation into live, readable sheet music rendered with [Verovio](https://www.verovio.org/) from generated MEI. Built for live-coding performance: a performer reads notation generated from whatever the live coder is typing in Pulsar.
 
+## Performance startup checklist
+
+In this exact order (about 90 seconds total):
+
+1. **Terminal** — start the bridge:
+   ```bash
+   cd ~/Tidal_Verovio_Teste/tidalverovio && node tidal-score-bridge.js
+   ```
+   Expect: "Tidal score bridge listening on http://127.0.0.1:8766". Keep this window open.
+   *If it says "address already in use": a bridge is already running — that's fine, skip ahead.*
+2. **Browser** — open http://127.0.0.1:8766/index.html → click **Connect bridge** → green dot.
+   *If the page doesn't load: the bridge isn't running (step 1).*
+3. **SuperCollider** — start SuperDirt as usual.
+4. **Pulsar** — menu **Packages → TidalCycles → Boot TidalCycles** → wait for "Connected to SuperDirt".
+   *One-off red "skip: N" at boot is harmless. If you edited BootTidal.hs since the last boot, use **Reboot** — boot-file changes only load on (re)boot; confirm by the page's cycle ring showing a small number.*
+5. **Play** — open `demo.tidal` (a prepared line-by-line demo) or your own `.tidal` file; evaluate lines with `Cmd+Enter`. Typing auto-fills the Live Lines rows; `-- @score` above a line auto-flags it.
+
+Panic buttons: `hush` in Pulsar silences everything; the browser page never needs restarting — worst case, refresh it and click Connect again.
+
 Single HTML file, no build step. Two ways to use it: a standalone scratch playground (presets + manual input), or live, fed from a real Pulsar/TidalCycles session via a small bridge.
 
 ## Fully offline — no internet required
