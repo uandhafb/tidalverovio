@@ -4,18 +4,25 @@ Converts TidalCycles/Strudel mini-notation into live, readable sheet music rende
 
 Single HTML file, no build step. Two ways to use it: a standalone scratch playground (presets + manual input), or live, fed from a real Pulsar/TidalCycles session via a small bridge.
 
+## Fully offline — no internet required
+
+The Verovio rendering engine is **bundled locally** in this folder (`verovio-toolkit-wasm.js`, self-contained with the WASM embedded). The page loads it from disk, so the whole system works with zero internet — it boots in under a second and a flaky venue connection cannot break a performance. Previously the engine was fetched from verovio.org on every page load, which intermittently stalled for minutes.
+
+To update the engine later (optional):
+```bash
+curl -sL -o verovio-toolkit-wasm.js https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js
+```
+
 ## Running the standalone playground
 
-Verovio needs to fetch its WASM binary, which most browsers block for pages opened directly as `file://`. Serve the folder instead:
+Serve the folder with any local web server:
 
 ```bash
 cd tidalverovio
 python3 -m http.server 8000
 ```
 
-Then open **http://localhost:8000/index.html**. Stop the server with `Ctrl+C`.
-
-(If you open `index.html` directly and it gets stuck on "Initialising Verovio…", that's this issue — switch to the local-server method above.)
+Then open **http://localhost:8000/index.html**. Stop the server with `Ctrl+C`. (The local server needs no internet — see above.)
 
 ## Running it live from Pulsar/TidalCycles
 
@@ -33,7 +40,7 @@ Then open **http://localhost:8000/index.html**. Stop the server with `Ctrl+C`.
 
 5. Use the **CPS** input to set the tempo (cycles per second, e.g. `setcps (135/60/4)` = 0.5625). The bridge auto-extracts `setcps(...)` from your `.tidal` source when it arrives. Hit **Play** to advance cycles automatically — the score and the red playhead sweep in sync with the tempo.
 
-No BootTidal/Haskell changes are required.
+6. **For true cycle sync and the live Graphic Score**, boot Tidal with this project's `BootTidal.hs` (a copy of the Pulsar package's boot file plus a score OSC target on udp 6011): in Pulsar, set Settings → Packages → tidalcycles → *Boot Tidal Path* to the absolute path of `tidalverovio/BootTidal.hs`, then boot Tidal as usual. Sound is unaffected. Without this step the text pipeline (typing → staff) still works, but the cycle ring/playhead run on the internal clock instead of Tidal's real one and the Graphic Score only shows typed patterns, not actual playback.
 
 ## What it does
 
