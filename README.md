@@ -72,14 +72,21 @@ Deliberately **not** translated on the staff (the graphic score shows their real
 |---|---|
 | `a b c` | sequence — divides the cycle into equal parts |
 | `[a b]` | sub-group — nests a sequence inside one slot |
+| `a b . c c c` | `.` grouping shorthand — same as `[a b] [c c c]` |
 | `a*3` | speed — fits 3 repeats into one slot |
+| `a*4%2` | speed by ratio — same as `a*2` |
 | `a!3` | replicate — 3 full-weight copies |
 | `a !` | bare `!` — repeats the previous element |
 | `a@3` | elongation — weight 3 relative to siblings |
+| `a _ _` | `_` elongation — each underscore extends the previous element one step |
 | `a/3` | slow — plays once every 3 cycles, rests otherwise |
 | `~` / `r` | rest |
 | `<a b c>` | cycle alternation — one pick per cycle |
 | `a, b` | parallel layers — simultaneous voices (top-level only; see Limitations) |
+| `{a b c d, e f g}` | polymeter — each part keeps its own step count and wraps across cycles |
+| `{a b c}%8` | polymeter subdivision — 8 slots per cycle wrapping the 3 elements |
+| `[a \|b \|c]` | random choice — one pick per cycle; shown grey on the staff (random = unpredictable), true pick in the graphic score |
+| `a:3` | sample index — treated as the same instrument family (`bd:3` sits at bd's drum position) |
 | `a(k,n)` | Euclidean rhythm — Bjorklund: k hits over n steps |
 | `a(k,n,r)` | Euclidean rhythm with rotation offset r |
 | `a?` / `a?0.2` | degrade — probabilistic; shown grey in the score, shade scaled to the probability; during a live session the notehead turns black the moment it actually plays |
@@ -89,6 +96,8 @@ Deliberately **not** translated on the staff (the graphic score shows their real
 This project was compared against a sibling project (`Tidal_VexFlow_Teste`) that also targets Tidal→score rendering. One real design fork: that project's `vexflowD.html` builds notation from **OSC playback events** (Tidal's actual resolved note/cps/cycle/delta) rather than from re-parsing typed text. This project deliberately does **not** do that. Reason: OSC gives a flat list of already-resolved events with no structural grouping, and reconstructing fractions from floating-point cycle/delta values is inherently lossy — both work against tuplet detection, which depends on knowing which events came from one equal subdivision. Parsing the typed mini-notation text directly preserves that structure exactly. Tradeoff: Tidal features outside the quoted mini-notation string (`jux`, `every`, randomisation, `#` chains) aren't reflected in the score.
 
 ## Known limitations
+
+- `/` on groups deviates from Tidal: `[a b]/2` renders the whole group every 2nd cycle, while Tidal plays *half of the group per cycle* (a on cycle 0, b on cycle 1). Exact for single elements (`bd/2`). The true behavior needs cross-barline note slicing — future work; the graphic score shows the real playback meanwhile.
 
 - Tuplet detection only triggers when all siblings have **equal weight**; mixed `@`-elongation groups fall back to nearest-binary duration snapping (shown as "N durations approximated").
 - Ties can't help non-binary denominators (e.g. 1/3, 1/5 of a non-tuplet context) — those still snap.

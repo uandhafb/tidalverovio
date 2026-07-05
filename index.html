@@ -816,7 +816,9 @@ function resolveNode(el, cycleIndex) {
     if (el.type === 'alt') {
       const len = el.alternatives.length;
       const idx = ((cycleIndex % len) + len) % len;
-      el = el.alternatives[idx];
+      // random choice (|): the staff can't predict Tidal's pick, so show a
+      // deterministic stand-in in grey — the graphic score shows the truth
+      el = el.random ? applyProb(el.alternatives[idx], 0.5) : el.alternatives[idx];
     } else if (el.type === 'slow') {
       const phase = ((cycleIndex % el.n) + el.n) % el.n;
       el = phase === 0 ? el.inner : { type: 'leaf', value: '~', weight: 1 };
@@ -839,7 +841,8 @@ function tokenise(src) {
     else if (ch === ')') { depth = Math.max(0, depth - 1); cur += ch; }
     else if (depth > 0) { cur += ch; }
     else if (/\s/.test(ch)) { if (cur) { result.push(cur); cur = ''; } }
-    else if (ch === '[' || ch === ']' || ch === '<' || ch === '>') {
+    else if (ch === '[' || ch === ']' || ch === '<' || ch === '>' ||
+             ch === '{' || ch === '}' || ch === '|') {
       if (cur) { result.push(cur); cur = ''; }
       result.push(ch);
     } else if (ch === ',') {
@@ -853,11 +856,21 @@ function tokenise(src) {
   return result;
 }
 
-// Parse modifier suffix: c4*3  c4!2  c4@3  c4/2
+// A modifier amount may be a plain number or a ratio: bd*4%2 == bd*2.
+function parseModNum(s) {
+  if (s.includes('%')) {
+    const [a, b] = s.split('%').map(parseFloat);
+    return b ? a / b : a;
+  }
+  return parseFloat(s);
+}
+const MOD_NUM_RE = '\\d+(?:\\.\\d+)?(?:%\\d+(?:\\.\\d+)?)?';
+
+// Parse modifier suffix: c4*3  c4!2  c4@3  c4/2  bd*4%2
 function parseMod(tok) {
-  const m = tok.match(/^(.*?)([*!@/])(\d+(?:\.\d+)?)$/);
+  const m = tok.match(new RegExp(`^(.*?)([*!@/])(${MOD_NUM_RE})$`));
   if (!m) return { base: tok, op: null, n: 1 };
-  return { base: m[1], op: m[2], n: parseFloat(m[3]) };
+  return { base: m[1], op: m[2], n: parseModNum(m[3]) };
 }
 
 // Split a trailing degrade suffix off a token: bd? → 50%, bd?0.2 → 20%.
@@ -891,14 +904,61 @@ function parseTokens(tokens, pos, closeTok = null) {
 
     if (tok === ',') { pos++; layers.push([]); continue; }
 
+    // `_` elongation: extends the previous element by one step.
+    // Copy-on-write because bare `!` can alias the previous element.
+    if (tok === '_') {
+      pos++;
+      const cur = current();
+      if (cur.length) {
+        const last = cur[cur.length - 1];
+        cur[cur.length - 1] = { ...last, weight: last.weight + 1 };
+      }
+      continue;
+    }
+
+    // `.` grouping shorthand and `|` random choice: recorded as markers,
+    // resolved by finalize() below once the sequence is complete.
+    if (tok === '.') { pos++; current().push({ type: 'dot' }); continue; }
+    if (tok === '|') { pos++; current().push({ type: 'pipe' }); continue; }
+
+    // Polymetric sequence: {a b c, d e}%N — each comma-part keeps its own
+    // step count and wraps; slots advance across cycles.
+    if (tok === '{') {
+      pos++;
+      const sub = parseTokens(tokens, pos, '}');
+      pos = sub.pos;
+      let steps = null;
+      if (pos < tokens.length) {
+        const m = tokens[pos].match(/^%(\d+)$/);
+        if (m) { steps = parseInt(m[1]); pos++; }
+      }
+      if (!steps) steps = sub.layers[0] ? sub.layers[0].length : 1;
+      // Slot i of a layer shows element (c*steps + i) mod len on cycle c:
+      // an alternation over the layer's elements, cycle-remapped per slot.
+      const mkSlot = (layer, i) => ({
+        type: 'cycled', weight: 1,
+        map: c => c * steps + i,
+        inner: { type: 'alt', alternatives: layer, weight: 1 }
+      });
+      const slotLayers = sub.layers
+        .filter(l => l.length > 0)
+        .map(layer => Array.from({ length: steps }, (_, i) => mkSlot(layer, i)));
+      if (slotLayers.length) {
+        const g = { type: 'group', children: [].concat(...slotLayers), weight: 1 };
+        if (slotLayers.length > 1) g.polyLayers = slotLayers;
+        current().push(g);
+      }
+      continue;
+    }
+
     if (tok === '[') {
       pos++;
       const sub = parseTokens(tokens, pos, ']');
       pos = sub.pos;
       let op = null, n = 1;
       if (pos < tokens.length) {
-        const m = tokens[pos].match(/^([*!@/])(\d+(?:\.\d+)?)$/);
-        if (m) { op = m[1]; n = parseFloat(m[2]); pos++; }
+        const m = tokens[pos].match(new RegExp(`^([*!@/])(${MOD_NUM_RE})$`));
+        if (m) { op = m[1]; n = parseModNum(m[2]); pos++; }
       }
       const subElements = sub.layers.length > 1 ? [].concat(...sub.layers) : sub.layers[0];
       const weight = op === '@' ? n : 1;
@@ -930,8 +990,8 @@ function parseTokens(tokens, pos, closeTok = null) {
       pos = sub.pos;
       let op = null, n = 1;
       if (pos < tokens.length) {
-        const m = tokens[pos].match(/^([*!@])(\d+(?:\.\d+)?)$/);
-        if (m) { op = m[1]; n = parseFloat(m[2]); pos++; }
+        const m = tokens[pos].match(new RegExp(`^([*!@])(${MOD_NUM_RE})$`));
+        if (m) { op = m[1]; n = parseModNum(m[2]); pos++; }
       }
       const weight = op === '@' ? n : 1;
       current().push({ type: 'alt', alternatives: sub.layers[0], weight });
@@ -996,7 +1056,35 @@ function parseTokens(tokens, pos, closeTok = null) {
       push({ type: 'leaf', value: base, weight: 1 });
     }
   }
-  return { layers, pos };
+
+  // Resolve the `.` and `|` markers now that the sequence is complete.
+  const splitRuns = (seq, markerType) => {
+    const runs = [];
+    let run = [];
+    for (const e of seq) {
+      if (e.type === markerType) { if (run.length) runs.push(run); run = []; }
+      else run.push(e);
+    }
+    if (run.length) runs.push(run);
+    return runs;
+  };
+  const finalize = seq => {
+    // `|` random choice: one pick per cycle. Random can't live honestly on
+    // a staff, so the pick renders grey (probabilistic), like `?`.
+    if (seq.some(e => e.type === 'pipe')) {
+      const alternatives = splitRuns(seq, 'pipe').map(r =>
+        r.length === 1 ? r[0] : { type: 'group', children: finalize(r), weight: 1 });
+      return [{ type: 'alt', alternatives, weight: 1, random: true }];
+    }
+    // `.` grouping shorthand: bd sd . hh hh hh == [bd sd] [hh hh hh]
+    if (seq.some(e => e.type === 'dot')) {
+      return splitRuns(seq, 'dot').map(r =>
+        r.length === 1 ? r[0] : { type: 'group', children: r, weight: 1 });
+    }
+    return seq;
+  };
+
+  return { layers: layers.map(finalize), pos };
 }
 
 // ─── 1b. Tidal function chains (rev, fast, every, jux…) ─────────────────────
@@ -1312,7 +1400,8 @@ function buildDrumMap(values) {
   const map = new Map();
   const usedRanks = new Set();
   for (const v of values) {
-    const known = DRUM_MAP[v];
+    // bd:3 (sample index) belongs to the bd instrument family — same spot
+    const known = DRUM_MAP[v] || DRUM_MAP[v.split(':')[0]];
     if (known) { map.set(v, known); usedRanks.add(pitchRank(known)); }
   }
   let poolIdx = 0;
