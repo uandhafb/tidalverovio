@@ -1093,7 +1093,7 @@ function parseTokens(tokens, pos, closeTok = null) {
 // are translated — random functions (sometimes, irand…) and effects (cut,
 // gain…) can't honestly live on a staff; the graphic score shows those.
 
-const SUPPORTED_FNS = new Set(['rev', 'palindrome', 'fast', 'density', 'ply', 'every', 'repeatCycles', 'jux', 'iter']);
+const SUPPORTED_FNS = new Set(['rev', 'palindrome', 'fast', 'density', 'hurry', 'ply', 'every', 'repeatCycles', 'jux', 'iter']);
 
 // One segment ("every 4 rev") → descriptor {fn, n?, inner?} or {fn:'?', raw}.
 // Parentheses act as grouping only, so "every 2 (jux rev)" parses like
@@ -1106,10 +1106,13 @@ function parseChainSegment(seg) {
 
   if (head === 'rev' || head === 'palindrome') return { fn: head, raw: seg.trim() };
 
-  if (head === 'fast' || head === 'density' || head === 'ply' || head === 'iter' || head === 'repeatCycles') {
+  if (head === 'fast' || head === 'density' || head === 'hurry' || head === 'ply' || head === 'iter' || head === 'repeatCycles') {
     const n = parseInt(rest[0]);
     if (!Number.isInteger(n) || n < 1) return { fn: '?', raw: seg.trim() };
-    return { fn: head === 'density' ? 'fast' : head, n, raw: seg.trim() };
+    // hurry = fast + sample playback speed; the speed part doesn't change
+    // rhythm, so for notation it IS fast.
+    const fn = (head === 'density' || head === 'hurry') ? 'fast' : head;
+    return { fn, n, raw: seg.trim() };
   }
 
   if (head === 'every') {
