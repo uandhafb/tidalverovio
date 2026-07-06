@@ -167,7 +167,8 @@ server.on("error", (error) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Tidal score bridge listening on http://${HOST}:${PORT}`);
-  console.log(`Performer page: http://${HOST}:${PORT}/index.html`);
+  console.log(`Score page:      http://${HOST}:${PORT}/index.html`);
+  console.log(`City score:      http://${HOST}:${PORT}/performer2.html`);
   console.log(`WebSocket URL: ws://${HOST}:${PORT}`);
   if (WATCH_FILE) startWatching(WATCH_FILE);
   if (!DISABLE_OSC) startOscClockReceiver();
