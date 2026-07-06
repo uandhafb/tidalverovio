@@ -37,6 +37,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Performer Window 2 — the growing organism score.
+    if (req.method === "GET" && req.url === "/performer2.html") {
+      serveFile(res, path.join(ROOT, "performer2.html"), "text/html; charset=utf-8");
+      return;
+    }
+    if (req.method === "GET" && req.url === "/leaflet.js") {
+      serveFile(res, path.join(ROOT, "leaflet.js"), "application/javascript; charset=utf-8");
+      return;
+    }
+    if (req.method === "GET" && req.url === "/leaflet.css") {
+      serveFile(res, path.join(ROOT, "leaflet.css"), "text/css; charset=utf-8");
+      return;
+    }
+
     if (req.method === "GET" && req.url === "/health") {
       writeJson(res, 200, { ok: true, clients: clients.size, watch: WATCH_FILE || null });
       return;

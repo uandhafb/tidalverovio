@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Score · Performer 2</title>
+<link rel="stylesheet" href="leaflet.css">
+<style>
+  :root {
+    --bg: #0b0d11;
+    --ink: #e8e6e0;
+    --muted: #6a7480;
+    --panel: rgba(18, 22, 28, 0.88);
+    --line: #2a3038;
+    --ok: #3fae82;
+    --warn: #c8a000;
+    --bad: #e05c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+
+  #map { position: absolute; inset: 0; z-index: 1; background: #14181d; }
+  #stage { position: absolute; inset: 0; z-index: 2; display: none; }
+
+  .topbar {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 12px;
+    z-index: 1000;
+    backdrop-filter: blur(8px);
+  }
+  .topbar input[type=text] {
+    background: transparent; border: none; outline: none;
+    color: var(--ink); font: inherit; font-size: 14px; width: 260px;
+    padding: 2px 6px;
+  }
+  .btn {
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    border-radius: 999px;
+    font: inherit; font-size: 13px; font-weight: 700;
+    padding: 7px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn.primary { background: #146c94; border-color: #146c94; color: #fff; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .hud {
+    position: fixed; top: 14px; left: 14px;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    z-index: 1000;
+    backdrop-filter: blur(8px);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--line); transition: background 0.3s; }
+  .dot.connecting { background: var(--warn); }
+  .dot.connected  { background: var(--ok); }
+  .dot.error      { background: var(--bad); }
+  .cyc { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+  .status {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    color: var(--muted); font-size: 13px; padding: 8px 18px;
+    z-index: 1000; backdrop-filter: blur(8px);
+    max-width: 84vw; text-align: center;
+  }
+
+  /* score cards over the stage */
+  .card {
+    position: absolute;
+    min-width: 150px; max-width: 240px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    z-index: 5;
+    transform: translate(-50%, 12px);
+    opacity: 0;
+    transition: opacity 0.6s, box-shadow 0.4s;
+    pointer-events: none;
+    backdrop-filter: blur(6px);
+  }
+  .card.active { opacity: 1; }
+  .card.playing { box-shadow: 0 0 22px var(--cardc); }
+  .card h3 { font-size: 13px; margin-bottom: 5px; color: var(--cardc); }
+  .card .strip {
+    position: relative;
+    height: 26px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .card .blk {
+    position: absolute; top: 3px; bottom: 3px;
+    border-radius: 3px;
+    background: var(--cardc);
+    color: #fff; font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; white-space: nowrap;
+    min-width: 3px;
+  }
+  .card .needle {
+    position: absolute; top: 0; bottom: 0; width: 2px;
+    background: #e03c3c;
+  }
+  .leaflet-container { background: #14181d; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<canvas id="stage"></canvas>
+<div id="cards"></div>
+
+<div class="hud">
+  <span class="dot" id="wsDot"></span>
+  <span id="wsLabel">connecting…</span>
+  <span class="cyc" id="cycLabel"></span>
+  <button class="btn" id="backBtn" style="display:none;padding:3px 12px;font-size:12px">↩ map</button>
+</div>
+
+<div class="topbar" id="topbar">
+  <input type="text" id="searchBox" placeholder="search a place… (Enter)">
+  <button class="btn" id="clearBtn">clear pins</button>
+  <button class="btn primary" id="beginBtn" disabled>Begin ▶</button>
+</div>
+
+<div class="status" id="status">search a city, then click the map to place d1…d16</div>
+
+<script src="leaflet.js"></script>
+<script>
+// ═══ City Score — Performer Window 2 (proof of concept) ═════════════════════
+// Setup: pick a real place (OSM), drop d1–d16 pins. Begin: fetch the real
+// street network, route shortest paths from the origin pin (first placed)
+// to every other pin. Performance: pulses grow along real streets, driven
+// by the Tidal clock; when growth reaches a pin, that line ACTIVATES — its
+// score card appears (current cycle's events as a lane strip + phase
+// needle) and the performer plays it.
+
+const MAXPINS = 16;
+const COLORS = ['#4ba3c7','#a97ffc','#e0699e','#3fae82','#d98e2b','#5c7fe0',
+                '#c75b4b','#7fc74b','#4bc7b8','#c74b9e','#94a34b','#4b6ec7',
+                '#c7a34b','#8c4bc7','#4bc75e','#c74b4b'];
+const GROW_CYCLES = 8;     // cycles for the farthest path to complete
+
+// ── shared state ─────────────────────────────────────────────────────────
+const pins = [];           // {idx, lat, lon, marker}
+let phase = 'setup';       // 'setup' | 'perf'
+const clock = { cycle: 0, cps: 0.5625, at: 0 };
+let perf = null;           // set on Begin
+const lastEvents = new Map(); // orbit -> [{phase,value,dur,gain,cycle}] of current cycle
+const lastPlay = new Map();   // orbit -> performance.now() of last event
+
+function cycleNow() {
+  if (!clock.at) return clock.cycle;
+  return clock.cycle + (performance.now() - clock.at) / 1000 * clock.cps;
+}
+
+// ── map setup ────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false }).setView([38.72, -9.14], 14); // Lisboa default
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© OpenStreetMap'
+}).addTo(map);
+
+const statusEl = document.getElementById('status');
+
+document.getElementById('searchBox').addEventListener('keydown', async e => {
+  if (e.key !== 'Enter') return;
+  const q = e.target.value.trim();
+  if (!q) return;
+  statusEl.textContent = 'searching…';
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+    const js = await r.json();
+    if (js[0]) {
+      map.setView([+js[0].lat, +js[0].lon], 15);
+      statusEl.textContent = `${js[0].display_name.split(',')[0]} — click to place d1…d${MAXPINS}`;
+    } else statusEl.textContent = 'place not found';
+  } catch { statusEl.textContent = 'search failed (offline?)'; }
+});
+
+map.on('click', e => {
+  if (phase !== 'setup' || pins.length >= MAXPINS) return;
+  const idx = pins.length;
+  const marker = L.circleMarker(e.latlng, {
+    radius: 10, color: COLORS[idx], fillColor: COLORS[idx], fillOpacity: 0.85, weight: 2
+  }).addTo(map).bindTooltip(`d${idx + 1}`, { permanent: true, direction: 'top', offset: [0, -10] });
+  marker.on('click', () => removePin(idx));
+  pins.push({ idx, lat: e.latlng.lat, lon: e.latlng.lng, marker });
+  document.getElementById('beginBtn').disabled = pins.length < 2;
+  statusEl.textContent = `d${idx + 1} placed — ${pins.length >= 2 ? 'Begin when ready, or ' : ''}click for d${pins.length + 1}`;
+});
+
+function removePin(idx) {
+  if (phase !== 'setup') return;
+  const i = pins.findIndex(p => p.idx === idx);
+  if (i === -1) return;
+  map.removeLayer(pins[i].marker);
+  pins.splice(i, 1);
+  // relabel
+  pins.forEach((p, k) => {
+    p.idx = k;
+    p.marker.setStyle({ color: COLORS[k], fillColor: COLORS[k] });
+    p.marker.setTooltipContent(`d${k + 1}`);
+    p.marker.off('click').on('click', () => removePin(k));
+  });
+  document.getElementById('beginBtn').disabled = pins.length < 2;
+}
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  while (pins.length) removePin(pins[0].idx);
+  statusEl.textContent = 'pins cleared — click the map to place d1';
+});
+
+// ── street graph (Overpass) ──────────────────────────────────────────────
+async function fetchCity(bounds) {
+  const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+  const q = `[out:json][timeout:40];(
+way[highway~"^(trunk|primary|secondary|tertiary|residential|unclassified|living_street|pedestrian)$"](${bbox});
+node[amenity~"^(bar|cafe|restaurant|pub|nightclub|theatre|cinema|marketplace|music_venue)$"](${bbox});
+node[shop](${bbox});
+node[railway~"^(station|halt|tram_stop)$"](${bbox});
+node[highway=bus_stop](${bbox});
+);out geom 9000;`;
+  const r = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST', body: 'data=' + encodeURIComponent(q)
+  });
+  if (!r.ok) throw new Error('overpass ' + r.status);
+  const js = await r.json();
+  const ways = [], life = [], transit = [];
+  for (const e of js.elements) {
+    if (e.type === 'way' && e.geometry) ways.push(e);
+    else if (e.type === 'node') {
+      const t = e.tags || {};
+      if (t.railway || t.highway === 'bus_stop')
+        transit.push({ lat: e.lat, lon: e.lon, rail: !!t.railway });
+      else life.push({ lat: e.lat, lon: e.lon });
+    }
+  }
+  // caps to keep rendering light
+  const cap = (arr, n) => arr.length <= n ? arr : arr.filter((_, i) => i % Math.ceil(arr.length / n) === 0);
+  return { ways, life: cap(life, 2500), transit: cap(transit, 400) };
+}
+
+// "street life" density grid (~120m bins) — weights routing and glows
+function buildDensity(life) {
+  const bins = new Map();
+  const key = (la, lo) => `${Math.round(la / 0.0011)},${Math.round(lo / 0.0014)}`;
+  for (const p of life) bins.set(key(p.lat, p.lon), (bins.get(key(p.lat, p.lon)) || 0) + 1);
+  return { at: (la, lo) => bins.get(key(la, lo)) || 0 };
+}
+
+function nearTransit(transit, lat, lon, radiusDeg = 0.0009) {
+  for (const t of transit) {
+    const dx = (t.lon - lon) * 0.75, dy = t.lat - lat;
+    if (dx * dx + dy * dy < radiusDeg * radiusDeg) return true;
+  }
+  return false;
+}
+
+function buildGraph(ways, density) {
+  const nodes = new Map(); // key -> {lat,lon,adj:[{key,w}]}
+  const key = (la, lo) => la.toFixed(5) + ',' + lo.toFixed(5);
+  const dist = (a, b) => {
+    const dx = (a.lon - b.lon) * Math.cos((a.lat + b.lat) / 2 * Math.PI / 180);
+    const dy = a.lat - b.lat;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+  const getNode = pt => {
+    const k = key(pt.lat, pt.lon);
+    if (!nodes.has(k)) nodes.set(k, { lat: pt.lat, lon: pt.lon, adj: [] });
+    return k;
+  };
+  for (const w of ways) {
+    for (let i = 1; i < w.geometry.length; i++) {
+      const a = getNode(w.geometry[i - 1]), b = getNode(w.geometry[i]);
+      const na = nodes.get(a), nb = nodes.get(b);
+      let wgt = dist(na, nb);
+      if (density) {
+        // routes prefer lively streets: up to 45% cheaper through dense life
+        const d = density.at((na.lat + nb.lat) / 2, (na.lon + nb.lon) / 2);
+        wgt *= 1.2 - Math.min(0.65, d * 0.09);
+      }
+      na.adj.push({ key: b, w: wgt });
+      nb.adj.push({ key: a, w: wgt });
+    }
+  }
+  return nodes;
+}
+
+function nearestNode(nodes, lat, lon) {
+  let best = null, bd = Infinity;
+  for (const [k, n] of nodes) {
+    const dx = (n.lon - lon) * Math.cos(lat * Math.PI / 180);
+    const dy = n.lat - lat;
+    const d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = k; }
+  }
+  return best;
+}
+
+function dijkstra(nodes, fromKey, toKey) {
+  const distMap = new Map([[fromKey, 0]]);
+  const prev = new Map();
+  const visited = new Set();
+  const heap = [[0, fromKey]];
+  while (heap.length) {
+    heap.sort((a, b) => a[0] - b[0]); // PoC-grade priority queue
+    const [d, k] = heap.shift();
+    if (visited.has(k)) continue;
+    visited.add(k);
+    if (k === toKey) break;
+    for (const { key: nk, w } of (nodes.get(k)?.adj || [])) {
+      const nd = d + w;
+      if (nd < (distMap.get(nk) ?? Infinity)) {
+        distMap.set(nk, nd);
+        prev.set(nk, k);
+        heap.push([nd, nk]);
+      }
+    }
+  }
+  if (!prev.has(toKey) && fromKey !== toKey) return null;
+  const path = [toKey];
+  while (path[0] !== fromKey) path.unshift(prev.get(path[0]));
+  return path.map(k => nodes.get(k));
+}
+
+// ── Begin: build the performance ─────────────────────────────────────────
+document.getElementById('beginBtn').addEventListener('click', async () => {
+  statusEl.textContent = 'fetching the real street network…';
+  document.getElementById('beginBtn').disabled = true;
+  const bounds = map.getBounds();
+
+  let ways = [], life = [], transit = [], nodes = null, density = null;
+  try {
+    ({ ways, life, transit } = await fetchCity(bounds));
+    density = buildDensity(life);
+    nodes = buildGraph(ways, density);
+    statusEl.textContent = `${ways.length} streets · ${life.length} places · ${transit.length} transit stops · routing…`;
+  } catch (e) {
+    statusEl.textContent = 'street data unavailable — using straight lines';
+  }
+
+  const origin = pins[0]; // the system chooses: first-placed pin
+  const paths = [];
+  for (const p of pins) {
+    if (p === origin) continue;
+    let pts = null;
+    if (nodes) {
+      const a = nearestNode(nodes, origin.lat, origin.lon);
+      const b = nearestNode(nodes, p.lat, p.lon);
+      const path = a && b ? dijkstra(nodes, a, b) : null;
+      if (path && path.length > 1) pts = path;
+    }
+    if (!pts) pts = [{ lat: origin.lat, lon: origin.lon }, { lat: p.lat, lon: p.lon }];
+    // cumulative lengths for smooth pulse travel
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) {
+      const dx = (pts[i].lon - pts[i-1].lon) * Math.cos(pts[i].lat * Math.PI / 180);
+      const dy = pts[i].lat - pts[i-1].lat;
+      cum.push(cum[i-1] + Math.sqrt(dx*dx + dy*dy));
+    }
+    // transit proximity per point: growth accelerates where the city
+    // moves people (real stations/stops from OSM)
+    const boost = pts.map(pt => nearTransit(transit, pt.lat, pt.lon) ? 1 : 0);
+    paths.push({ pin: p, pts, cum, boost, total: cum[cum.length-1] || 1e-9, arrived: false, progress: 0 });
+  }
+
+  perf = {
+    origin, paths, ways, life, transit, density,
+    bounds,
+    startCycle: Math.floor(cycleNow()),
+    maxLen: Math.max(...paths.map(p => p.total)),
+    lastFrame: performance.now(),
+    lastCycle: cycleNow(),
+  };
+
+  buildCards();
+  phase = 'perf';
+  document.getElementById('map').style.display = 'none';
+  document.getElementById('topbar').style.display = 'none';
+  document.getElementById('backBtn').style.display = '';
+  const stage = document.getElementById('stage');
+  stage.style.display = 'block';
+  resizeStage();
+  statusEl.textContent = `origin: d${origin.idx + 1} — connections grow with the music`;
+});
+
+// ── performance stage ────────────────────────────────────────────────────
+const stage = document.getElementById('stage');
+const ctx = stage.getContext('2d');
+let SW = 0, SH = 0;
+function resizeStage() {
+  const DPR = window.devicePixelRatio || 1;
+  SW = window.innerWidth; SH = window.innerHeight;
+  stage.width = SW * DPR; stage.height = SH * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  positionCards();
+}
+window.addEventListener('resize', resizeStage);
+
+function project(lat, lon) {
+  const b = perf.bounds;
+  const pad = 70;
+  const x = pad + (lon - b.getWest()) / (b.getEast() - b.getWest()) * (SW - pad * 2);
+  const y = pad + (b.getNorth() - lat) / (b.getNorth() - b.getSouth()) * (SH - pad * 2);
+  return [x, y];
+}
+
+// Music energy: every played event feeds the organism; it decays fast, so
+// the growth visibly breathes with the set (silence = near-stall).
+let energy = 0;
+
+function frontIndex(path) {
+  let i = 1;
+  while (i < path.cum.length && path.cum[i] < path.progress) i++;
+  return Math.min(i, path.pts.length - 1);
+}
+
+function advanceGrowth() {
+  const nowC = cycleNow();
+  const dCyc = Math.max(0, Math.min(0.25, nowC - perf.lastCycle));
+  perf.lastCycle = nowC;
+  energy *= Math.exp(-dCyc * 1.6);
+
+  const base = perf.maxLen / GROW_CYCLES; // map-units per cycle
+  for (const path of perf.paths) {
+    if (path.arrived) continue;
+    const i = frontIndex(path);
+    const transitMult = path.boost[i] || path.boost[Math.max(0, i - 1)] ? 1.8 : 1;
+    const musicMult = 0.35 + Math.min(2.2, energy);
+    path.progress = Math.min(path.total, path.progress + base * dCyc * musicMult * transitMult);
+  }
+}
+
+function draw() {
+  requestAnimationFrame(draw);
+  if (phase !== 'perf' || !perf) return;
+  ctx.clearRect(0, 0, SW, SH);
+  document.getElementById('cycLabel').textContent =
+    clock.at ? `cycle ${Math.floor(cycleNow())}` : '';
+
+  advanceGrowth();
+
+  // street web (context, faint)
+  ctx.strokeStyle = 'rgba(120,140,160,0.10)';
+  ctx.lineWidth = 1;
+  for (const w of perf.ways) {
+    ctx.beginPath();
+    w.geometry.forEach((g, i) => {
+      const [x, y] = project(g.lat, g.lon);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  // street life: warm dots, breathing gently with the music energy
+  const lifeGlow = 0.05 + Math.min(0.10, energy * 0.04);
+  ctx.fillStyle = `rgba(217,142,43,${lifeGlow})`;
+  for (const p of perf.life) {
+    const [x, y] = project(p.lat, p.lon);
+    ctx.fillRect(x - 1.2, y - 1.2, 2.4, 2.4);
+  }
+
+  // transit stops: cool diamonds (rail brighter than bus)
+  for (const t of perf.transit) {
+    const [x, y] = project(t.lat, t.lon);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = t.rail ? 'rgba(150,200,255,0.5)' : 'rgba(150,200,255,0.18)';
+    const s = t.rail ? 4 : 2.4;
+    ctx.fillRect(-s / 2, -s / 2, s, s);
+    ctx.restore();
+  }
+
+  const nowPh = cycleNow() - Math.floor(cycleNow());
+
+  for (const path of perf.paths) {
+    const col = COLORS[path.pin.idx];
+    const reach = Math.min(path.progress, path.total);
+    if (!path.arrived && reach >= path.total) { path.arrived = true; activate(path.pin); }
+
+    // lit portion of the street path
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2.4;
+    ctx.shadowColor = col; ctx.shadowBlur = 8;
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < path.pts.length; i++) {
+      if (path.cum[i] > reach) {
+        // partial segment up to the front
+        const j = i - 1;
+        const f = (reach - path.cum[j]) / (path.cum[i] - path.cum[j]);
+        const la = path.pts[j].lat + (path.pts[i].lat - path.pts[j].lat) * f;
+        const lo = path.pts[j].lon + (path.pts[i].lon - path.pts[j].lon) * f;
+        const [x, y] = project(la, lo);
+        ctx.lineTo(x, y);
+        // growth front pulse
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, 4 + Math.sin(performance.now() / 120) * 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = col;
+        ctx.fill();
+        started = false;
+        break;
+      }
+      const [x, y] = project(path.pts[i].lat, path.pts[i].lon);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    if (started) ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // pins
+  for (const p of pins) {
+    const [x, y] = project(p.lat, p.lon);
+    const col = COLORS[p.idx];
+    const isOrigin = p === perf.origin;
+    const arrived = isOrigin || perf.paths.find(pa => pa.pin === p)?.arrived;
+    const playedAgo = performance.now() - (lastPlay.get(p.idx) || 0);
+    const flash = Math.max(0, 1 - playedAgo / 400);
+
+    ctx.beginPath();
+    ctx.arc(x, y, (arrived ? 9 : 5) + flash * 6, 0, Math.PI * 2);
+    ctx.fillStyle = arrived ? col : col + '55';
+    ctx.shadowColor = col;
+    ctx.shadowBlur = arrived ? 14 + flash * 20 : 0;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = arrived ? '#fff' : 'rgba(255,255,255,0.4)';
+    ctx.font = '700 12px Inter, sans-serif';
+    ctx.fillText(`d${p.idx + 1}`, x + 12, y + 4);
+  }
+
+  updateCards(nowPh);
+}
+requestAnimationFrame(draw);
+
+// ── score cards ──────────────────────────────────────────────────────────
+const cardsEl = document.getElementById('cards');
+const cardMap = new Map(); // pinIdx -> {el, strip, needle}
+
+function buildCards() {
+  cardsEl.innerHTML = '';
+  cardMap.clear();
+  for (const p of pins) {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.setProperty('--cardc', COLORS[p.idx]);
+    el.innerHTML = `<h3>d${p.idx + 1}</h3><div class="strip"><div class="needle" style="left:0"></div></div>`;
+    cardsEl.appendChild(el);
+    cardMap.set(p.idx, { el, strip: el.querySelector('.strip'), needle: el.querySelector('.needle'), pin: p });
+  }
+  positionCards();
+  // origin is active from the start
+  activate(pins[0]);
+}
+
+function positionCards() {
+  if (!perf) return;
+  for (const { el, pin } of cardMap.values()) {
+    const [x, y] = project(pin.lat, pin.lon);
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+  }
+}
+
+function activate(pin) {
+  const c = cardMap.get(pin.idx);
+  if (c) c.el.classList.add('active');
+}
+
+function updateCards(nowPh) {
+  for (const [orbit, c] of cardMap) {
+    if (!c.el.classList.contains('active')) continue;
+    c.needle.style.left = (nowPh * 100).toFixed(1) + '%';
+    const playedAgo = performance.now() - (lastPlay.get(orbit) || 1e12);
+    c.el.classList.toggle('playing', playedAgo < 350);
+  }
+}
+
+// rebuild a card's strip from its current-cycle events
+function refreshStrip(orbit) {
+  const c = cardMap.get(orbit);
+  if (!c) return;
+  const evs = lastEvents.get(orbit) || [];
+  const needle = c.needle;
+  c.strip.innerHTML = '';
+  c.strip.appendChild(needle);
+  for (const e of evs) {
+    const b = document.createElement('div');
+    b.className = 'blk';
+    b.style.left = (e.phase * 100).toFixed(1) + '%';
+    b.style.width = Math.max(2.5, e.dur * 100).toFixed(1) + '%';
+    b.style.opacity = 0.5 + Math.min(0.5, e.gain * 0.35);
+    b.textContent = e.value;
+    c.strip.appendChild(b);
+  }
+}
+
+// ── events from the bridge ───────────────────────────────────────────────
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const noteName = m => { const r = Math.round(m); return NOTE_NAMES[((r%12)+12)%12] + Math.floor(r/12); };
+
+function addEvent(ev) {
+  const orbit = ev.orbit ?? 0;
+  const cyc = Number(ev.cycle);
+  if (!Number.isFinite(cyc) || orbit < 0 || orbit >= MAXPINS) return;
+  const ci = Math.floor(cyc);
+  const cps = Number(ev.cps) || clock.cps;
+  let list = lastEvents.get(orbit);
+  if (!list || list.length === 0 || list[0].cycle !== ci) { list = []; lastEvents.set(orbit, list); }
+  list.push({
+    cycle: ci,
+    phase: cyc - ci,
+    value: ev.s ?? (ev.note !== undefined && ev.note !== '' ? noteName(Number(ev.note) + 60)
+          : ev.n !== undefined && ev.n !== '' ? noteName(Number(ev.n) + 60) : '·'),
+    dur: Math.max(0.02, (Number(ev.delta) || 0.1) * cps),
+    gain: Number(ev.gain) || 1,
+  });
+  lastPlay.set(orbit, performance.now());
+  if (phase === 'perf') {
+    energy = Math.min(3.2, energy + 0.22 * (Number(ev.gain) || 1));
+    refreshStrip(orbit);
+  }
+}
+
+// ── back to the map (re-plan pins; performance state resets) ────────────
+document.getElementById('backBtn').addEventListener('click', () => {
+  phase = 'setup';
+  perf = null;
+  energy = 0;
+  document.getElementById('cards').innerHTML = '';
+  document.getElementById('stage').style.display = 'none';
+  document.getElementById('map').style.display = '';
+  document.getElementById('topbar').style.display = '';
+  document.getElementById('backBtn').style.display = 'none';
+  document.getElementById('beginBtn').disabled = pins.length < 2;
+  statusEl.textContent = 'back on the map — move pins or Begin again';
+  map.invalidateSize();
+});
+
+// ── bridge ───────────────────────────────────────────────────────────────
+const wsDot = document.getElementById('wsDot');
+const wsLabel = document.getElementById('wsLabel');
+function connect() {
+  wsDot.className = 'dot connecting';
+  wsLabel.textContent = 'connecting…';
+  const url = `ws://${location.hostname || '127.0.0.1'}:${location.port || 8766}`;
+  const ws = new WebSocket(url);
+  ws.onopen = () => { wsDot.className = 'dot connected'; wsLabel.textContent = 'live'; };
+  ws.onclose = () => {
+    wsDot.className = 'dot connecting';
+    wsLabel.textContent = 'reconnecting…';
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = () => { wsDot.className = 'dot error'; wsLabel.textContent = 'bridge?'; };
+  ws.onmessage = m => {
+    try {
+      const msg = JSON.parse(m.data);
+      if (msg.type === 'clock' && Number.isFinite(Number(msg.cycle)) && Number(msg.cps) > 0) {
+        clock.cycle = Number(msg.cycle);
+        clock.cps = Number(msg.cps);
+        clock.at = performance.now();
+      }
+      if (msg.type === 'tidal-event') addEvent(msg);
+    } catch {}
+  };
+}
+connect();
+</script>
+</body>
+</html>
