@@ -2,13 +2,51 @@
 
 Converts TidalCycles/Strudel mini-notation into live, readable sheet music rendered with [Verovio](https://www.verovio.org/) from generated MEI. Built for live-coding performance: a performer reads notation generated from whatever the live coder is typing in Pulsar.
 
+## Requirements
+
+Install these first (each has official installers for macOS / Linux / Windows):
+
+| What | Why | Check it works |
+|---|---|---|
+| [Node.js](https://nodejs.org) ≥ 18 | runs the bridge server | `node -v` prints a version |
+| [Pulsar](https://pulsar-edit.dev) + its `tidalcycles` package | the live-coding editor | Packages menu shows "TidalCycles" |
+| [SuperCollider](https://supercollider.github.io) + [SuperDirt](https://github.com/musikinformatik/SuperDirt) | the sound engine | SuperDirt boots in SC |
+| [TidalCycles](https://tidalcycles.org) ≥ 1.9 | the pattern language | booting Tidal in Pulsar prints a version |
+
+Any modern browser works. No other dependencies — the notation engine is bundled in this repo.
+
+## Install from scratch
+
+```bash
+git clone https://github.com/uandhafb/tidalverovio.git
+cd tidalverovio
+```
+
+1. **Install the Pulsar forwarder** (sends what you type to the score). macOS/Linux, from inside the cloned folder:
+   ```bash
+   ln -s "$(pwd)/pulsar-tidal-score-forwarder" ~/.pulsar/packages/tidal-verovio-forwarder
+   ```
+   Windows: copy the `pulsar-tidal-score-forwarder` folder into `%USERPROFILE%\.pulsar\packages\` and rename it `tidal-verovio-forwarder`.
+   Then restart Pulsar (or `Ctrl/Cmd+Shift+P` → "Window: Reload").
+
+2. **Point Tidal at this repo's boot file** (enables real clock sync + the live Graphic Score). Print the absolute path:
+   ```bash
+   echo "$(pwd)/BootTidal.hs"
+   ```
+   Then EITHER in Pulsar: Settings → Packages → tidalcycles → Settings → *Boot Tidal Path* → paste that path — OR add to `~/.pulsar/config.cson`:
+   ```cson
+   tidalcycles:
+     bootTidalPath: "/absolute/path/to/tidalverovio/BootTidal.hs"
+   ```
+   Boot-file changes only load when Tidal (re)boots.
+
 ## Performance startup checklist
 
 In this exact order (about 90 seconds total):
 
 1. **Terminal** — start the bridge:
    ```bash
-   cd ~/Tidal_Verovio_Teste/tidalverovio && node tidal-score-bridge.js
+   cd <path-to-your-clone>/tidalverovio && node tidal-score-bridge.js
    ```
    Expect: "Tidal score bridge listening on http://127.0.0.1:8766". Keep this window open.
    *If it says "address already in use": a bridge is already running — that's fine, skip ahead.*
@@ -133,6 +171,24 @@ This project was compared against a sibling project (`Tidal_VexFlow_Teste`) that
 - **Octave naming follows Tidal, not scientific pitch notation**: Tidal calls middle C "c5" (MIDI 60), one octave above the scientific name "C4". Typed note names and graphic-score labels both use Tidal's convention, and the staff draws notes at their true sounding pitch — so `note "c4"` appears one octave below middle C, exactly as it sounds.
 - Verovio renders no clef glyph for the percussion staff configuration — this is expected behavior, not a defect (the sibling VexFlow/Verovio reference project has the same characteristic).
 - `bd?` degrade is always shown (deterministic score); the grey colour indicates probability. For a performance score, always-visible is more useful than randomly-hiding.
+
+## Troubleshooting
+
+| Symptom | Cause → fix |
+|---|---|
+| `node: command not found` | Node.js not installed → install from nodejs.org, reopen the terminal |
+| `EADDRINUSE: address already in use` | a bridge is already running — that's fine, just open the page. To force a fresh one: `lsof -tnP -iTCP:8766 -sTCP:LISTEN \| xargs kill`, then start again |
+| Page doesn't load at 127.0.0.1:8766 | the bridge isn't running → start it (step 1 of the checklist) |
+| Page stuck on "Initialising Verovio…" | you opened `index.html` as a file → always open it through the bridge URL |
+| Typing in Pulsar doesn't fill the Live Lines | forwarder not installed or Pulsar not reloaded → redo Install step 1; the file must be a `.tidal` file |
+| Cycle ring doesn't pulse with the audio / Graphic Score says "from typed patterns" while playing | Tidal isn't sending its clock → Install step 2 not done, or Tidal wasn't RE-booted after it. Confirm: the page's cycle number should match Tidal's real cycle |
+| Events from d13–d16 appear under d1 | Tidal is running an old boot file without their orbit tags → reboot Tidal with this repo's `BootTidal.hs` |
+| One-off red `skip: N` at Tidal boot | harmless scheduler catch-up — ignore unless it floods during playback |
+
+## Branches
+
+- `main` — the score system described here (staff + graphic score, stable)
+- `performer2` — experimental "city score": patterns pinned to real map locations, connections growing along real streets (needs internet during its setup step for map data)
 
 ## Files
 
