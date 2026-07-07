@@ -42,6 +42,8 @@ cd tidalverovio
 
 ## Performance startup checklist
 
+Assumes the one-time [Install from scratch](#install-from-scratch) steps are done. Quick check: `ls ~/.pulsar/packages/tidal-verovio-forwarder` should show the symlink — if it doesn't, notes will play but the score will stay empty.
+
 In this exact order (about 90 seconds total):
 
 1. **Terminal** — start the bridge:
@@ -181,6 +183,7 @@ This project was compared against a sibling project (`Tidal_VexFlow_Teste`) that
 | `node: command not found` | Node.js not installed → install from nodejs.org, reopen the terminal |
 | `EADDRINUSE: address already in use` | a bridge is already running — that's fine, just open the page. To force a fresh one: `lsof -tnP -iTCP:8766 -sTCP:LISTEN \| xargs kill`, then start again |
 | Page doesn't load at 127.0.0.1:8766 | the bridge isn't running → start it (step 1 of the checklist) |
+| Page shows "Connection error — bridge running?" right after connecting | often transient — it auto-retries every 2s in the background but the message doesn't clear itself. Wait a couple seconds or click **Connect bridge** again; only investigate further if it doesn't clear |
 | Page stuck on "Initialising Verovio…" | you opened `index.html` as a file → always open it through the bridge URL |
 | Typing in Pulsar doesn't fill the Live Lines | forwarder not installed or Pulsar not reloaded → redo Install step 1; the file must be a `.tidal` file |
 | Cycle ring doesn't pulse with the audio / Graphic Score says "from typed patterns" while playing | Tidal isn't sending its clock → Install step 2 not done, or Tidal wasn't RE-booted after it. Confirm: the page's cycle number should match Tidal's real cycle |
