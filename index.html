@@ -634,8 +634,8 @@
         <label class="field">
           Pitch input
           <select id="pitchInputOpt">
-            <option value="name" selected>Note names (c4)</option>
-            <option value="midi">Numbers (60 = c5, Tidal)</option>
+            <option value="name" selected>Names + numbers (Tidal, 0 = c5)</option>
+            <option value="midi">Raw MIDI (60 = c5)</option>
           </select>
         </label>
         <label class="field">
@@ -1293,7 +1293,7 @@ function parseChainSegment(seg) {
     return { fn: choiceM[1], items, raw: seg.trim() };
   }
 
-  const scaleM = seg.trim().match(/^(scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?(?:\s+"?([a-gA-G][#b]?\d?)"?)?$/);
+  const scaleM = seg.trim().match(/^(scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?(?:\s+"?([a-gA-G][sf#b]?\d*)"?)?$/);
   if (scaleM) {
     return { fn: 'scale', scale: scaleM[2], root: scaleM[3] || 'c5', raw: seg.trim() };
   }
@@ -2086,7 +2086,7 @@ const MIDI_PITCH_CLASSES = [
   ['c',''], ['c','s'], ['d',''], ['d','s'], ['e',''], ['f',''],
   ['f','s'], ['g',''], ['g','s'], ['a',''], ['a','s'], ['b','']
 ];
-const PITCH_CLASS_TO_SEMITONE = { c: 0, 'c#': 1, db: 1, d: 2, 'd#': 3, eb: 3, e: 4, f: 5, 'f#': 6, gb: 6, g: 7, 'g#': 8, ab: 8, a: 9, 'a#': 10, bb: 10, b: 11 };
+const PITCH_CLASS_TO_SEMITONE = { c: 0, cs: 1, 'c#': 1, df: 1, db: 1, d: 2, ds: 3, 'd#': 3, ef: 3, eb: 3, e: 4, f: 5, fs: 6, 'f#': 6, gf: 6, gb: 6, g: 7, gs: 8, 'g#': 8, af: 8, ab: 8, a: 9, as: 10, 'a#': 10, bf: 10, bb: 10, b: 11 };
 const CHORD_INTERVALS = {
   maj: [0, 4, 7], major: [0, 4, 7], min: [0, 3, 7], minor: [0, 3, 7], m: [0, 3, 7],
   dim: [0, 3, 6], aug: [0, 4, 8], sus2: [0, 2, 7], sus4: [0, 5, 7],
@@ -2117,7 +2117,7 @@ function midiNumberToPitchInfo(number) {
 }
 
 function pitchNameToMidi(name, defaultOct = 5) {
-  const m = String(name).toLowerCase().match(/^([a-g])([#b]?)(\d+)?$/);
+  const m = String(name).toLowerCase().match(/^([a-g])(s|f|#|b)?(\d+)?$/);
   if (!m) return null;
   const pc = PITCH_CLASS_TO_SEMITONE[m[1] + (m[2] || '')];
   if (pc === undefined) return null;
@@ -2191,12 +2191,20 @@ function parseNote(val, pitchInput = 'name') {
     return midiNumberToPitchInfo(Number(val));
   const chord = parseChord(val);
   if (chord) return chord;
-  const m = val.toLowerCase().match(/^([a-g])([#b]?)(\d+)$/);
+  // Tidal note-numbers: note 0 == c5 (middle C, MIDI 60); negatives and
+  // decimals allowed (decimals round to the nearest semitone on a staff).
+  if (/^-?\d+(\.\d+)?$/.test(val))
+    return midiNumberToPitchInfo(Math.round(Number(val)) + 60);
+  // Tidal accidentals are letters: s = sharp, f = flat (cs5, ef5); # and b
+  // accepted as aliases. Octave optional — Tidal's default octave is 5.
+  const m = val.toLowerCase().match(/^([a-g])(s|f|#|b)?(\d+)?$/);
   if (!m) return null;
-  const acc = m[2] === '#' ? 's' : m[2] === 'b' ? 'f' : '';
+  const acc = (m[2] === 's' || m[2] === '#') ? 's'
+            : (m[2] === 'f' || m[2] === 'b') ? 'f' : '';
+  const typedOct = m[3] !== undefined ? parseInt(m[3]) : 5;
   // Tidal's "c5" is middle C = MEI/scientific octave 4, so the staff octave
   // is the typed octave minus 1 — the note is drawn where it actually sounds.
-  return { pname: m[1], acc, oct: parseInt(m[3]) - 1, rest: false };
+  return { pname: m[1], acc, oct: typedOct - 1, rest: false };
 }
 
 function clefMiddlePitch(clef) {
