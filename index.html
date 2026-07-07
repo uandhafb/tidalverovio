@@ -1038,11 +1038,20 @@ function parseTokens(tokens, pos, closeTok = null) {
         const m = tokens[pos].match(new RegExp(`^([*!@/])(${MOD_NUM_RE})$`));
         if (m) { op = m[1]; n = parseModNum(m[2]); pos++; }
       }
+      let chordValues = null;
+      if (sub.layers.length > 1 && sub.layers.every(l =>
+            l.length === 1 && l[0].type === 'leaf' && l[0].value !== '~' && l[0].value !== 'r')) {
+        chordValues = sub.layers.flatMap(l => l[0].value.split('+'));
+      }
       const subElements = sub.layers.length > 1 ? [].concat(...sub.layers) : sub.layers[0];
       const weight = op === '@' ? n : 1;
       if (op === '!' || op === null) {
         const repeat = op === '!' ? Math.round(n) : 1;
         for (let i = 0; i < repeat; i++) {
+          if (chordValues) {
+            current().push({ type: 'leaf', value: chordValues.join('+'), weight });
+            continue;
+          }
           const g = { type: 'group', children: subElements, weight };
           // Remember the original parallel layers: if this bracket turns out
           // to BE the whole pattern (e.g. "[bd(2,8), hh(5,8)]"), promotePoly
@@ -2197,6 +2206,16 @@ function parseNote(val, pitchInput = 'name') {
     return midiNumberToPitchInfo(Number(val));
   if (pitchInput === 'tidal-note' && /^-?\d+(\.\d+)?$/.test(val))
     return midiNumberToPitchInfo(Number(val) + 60);
+  if (val.includes('+')) {
+    const members = [];
+    for (const part of val.split('+')) {
+      const info = parseNote(part, pitchInput);
+      if (!info || info.rest) continue;
+      if (info.chord) members.push(...info.chord);
+      else members.push(info);
+    }
+    return members.length ? { chord: members, rest: false } : null;
+  }
   const chord = parseChord(val);
   if (chord) return chord;
   // Tidal note-numbers: note 0 == c5 (middle C, MIDI 60); negatives and
