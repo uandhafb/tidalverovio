@@ -2174,6 +2174,12 @@ function pitchInfoToTidalName(info) {
   return `${info.pname}${acc}${info.oct + 1}`;
 }
 
+function pitchInfoToMidiNumber(info) {
+  if (!info || info.rest || info.chord) return null;
+  const pc = PITCH_CLASS_TO_SEMITONE[info.pname + (info.acc === 's' ? '#' : info.acc === 'f' ? 'b' : '')];
+  return pc === undefined ? null : (info.oct + 1) * 12 + pc;
+}
+
 function scaleValues(elements, scaleName, root) {
   return elements.map(el => {
     if (el.type === 'leaf' && /^-?\d+(\.\d+)?$/.test(el.value))
@@ -2189,6 +2195,8 @@ function parseNote(val, pitchInput = 'name') {
   if (val === 'r' || val === '~') return { rest: true };
   if (pitchInput === 'midi' && /^-?\d+(\.\d+)?$/.test(val))
     return midiNumberToPitchInfo(Number(val));
+  if (pitchInput === 'tidal-note' && /^-?\d+(\.\d+)?$/.test(val))
+    return midiNumberToPitchInfo(Number(val) + 60);
   const chord = parseChord(val);
   if (chord) return chord;
   // Tidal note-numbers: note 0 == c5 (middle C, MIDI 60); negatives and
@@ -2839,18 +2847,34 @@ function getFlaggedLines() {
     .map(row => ({
       label: row.querySelector('.live-line-label').textContent.trim(),
       src: row.querySelector('.live-line-input').value.trim(),
+      kind: row.dataset.kind || '',
+      pitchInput: row.dataset.pitchInput || '',
       // per-line chain (from the bridge) behind the global `all $` chain
       chain: [...allChain, ...JSON.parse(row.dataset.chain || '[]')]
     }))
     .filter(p => p.src.length > 0);
 }
 
+function inferLiveRenderOptions(patterns, selectedMode, selectedPitchInput) {
+  const hasPitchLine = patterns.some(p => p.kind === 'note' || p.kind === 'n');
+  const hasRhythmLine = patterns.some(p => p.kind === 'sound' || p.kind === 's');
+  const mode = hasPitchLine && !hasRhythmLine ? 'pitch'
+    : hasRhythmLine && !hasPitchLine ? 'rhythm'
+    : selectedMode;
+  const pitchInput = mode === 'pitch' && patterns.some(p => p.pitchInput === 'tidal-note')
+    ? 'tidal-note'
+    : mode === 'pitch' && patterns.some(p => p.pitchInput === 'midi')
+      ? 'midi'
+    : selectedPitchInput;
+  return { mode, pitchInput };
+}
+
 function renderLivePattern() {
   if (!vrvToolkit) return;
   const cycles     = parseInt(document.getElementById('cyclesOpt').value);
   const clef       = document.getElementById('clefOpt').value;
-  const mode       = document.getElementById('modeOpt').value;
-  const pitchInput = document.getElementById('pitchInputOpt').value;
+  let mode         = document.getElementById('modeOpt').value;
+  let pitchInput   = document.getElementById('pitchInputOpt').value;
   const statusEl   = document.getElementById('status');
   let patterns     = getFlaggedLines();
 
@@ -2886,6 +2910,9 @@ function renderLivePattern() {
   }
 
   try {
+    const inferred = inferLiveRenderOptions(patterns, mode, pitchInput);
+    mode = inferred.mode;
+    pitchInput = inferred.pitchInput;
     const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle: playback.cycleIndex });
     document.getElementById('meiPre').textContent = mei;
     document.getElementById('meiDetails').style.display = '';
@@ -2986,9 +3013,17 @@ function midiToName(m) {
 // melodic patterns so it wins; bare `n` can also mean a sample index
 // (bd:3), so it ranks below `s`.
 function tidalEventValue(ev) {
-  if (ev.note !== undefined && ev.note !== null && ev.note !== '') return midiToName(Number(ev.note) + 60);
+  if (ev.note !== undefined && ev.note !== null && ev.note !== '') {
+    const octave = ev.params && ev.params.octave !== undefined ? Number(ev.params.octave) : null;
+    const midi = Number(ev.note) + (Number.isFinite(octave) ? octave * 12 : 60);
+    return midiToName(midi);
+  }
   if (ev.s !== undefined && ev.s !== null && ev.s !== '') return String(ev.s);
-  if (ev.n !== undefined && ev.n !== null && ev.n !== '') return midiToName(Number(ev.n) + 60);
+  if (ev.n !== undefined && ev.n !== null && ev.n !== '') {
+    const octave = ev.params && ev.params.octave !== undefined ? Number(ev.params.octave) : null;
+    const midi = Number(ev.n) + (Number.isFinite(octave) ? octave * 12 : 60);
+    return midiToName(midi);
+  }
   return '?';
 }
 
@@ -3209,11 +3244,11 @@ for (let i = 1; i <= LIVE_LINE_COUNT; i++) {
 let bridgeSocket = null;
 let bridgeAutoReconnect = false;
 
-// Captures: dN, the function-chain text between the first `$` and the
-// pattern function, and the quoted mini-notation.
-const TIDAL_LINE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(?:sound|s|note|n)\s+"([^"]+)"/g;
-const TIDAL_SCALE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(?:note|n)\s+\((scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?\s+"([^"]+)"\)/g;
-const TIDAL_CHOOSE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(?:sound|s|note|n)\s+\((choose|cycleChoose|wchoose)\s+\[([^\]]+)\]\)/g;
+// Captures: dN, the function-chain text between the first `$`, the pattern
+// function kind, and the quoted mini-notation.
+const TIDAL_LINE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(sound|s|note|n)\s+"([^"]+)"/g;
+const TIDAL_SCALE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\((scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?\s+"([^"]+)"\)/g;
+const TIDAL_CHOOSE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(sound|s|note|n)\s+\((choose|cycleChoose|wchoose)\s+\[([^\]]+)\]\)/g;
 const ALL_LINE_RE = /^\s*all\s*\$\s*(.+)$/m;
 
 // Chain from an `all $ …` line in the source — applies to every line.
@@ -3227,7 +3262,142 @@ function markBridgeUpdate() {
   document.getElementById('bridgeLastUpdate').textContent = new Date().toLocaleTimeString();
 }
 
-function applyPatternToLine(line, pattern, { flag = false, chain = null } = {}) {
+function stripTidalComments(source) {
+  return source.split(/\r?\n/).map(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('--')) return '';
+    return line.split('--')[0];
+  }).join('\n');
+}
+
+function livePatternLooksMidi(pattern) {
+  let tokens;
+  try { tokens = tokenise(pattern); }
+  catch { return false; }
+  let sawValue = false;
+  for (const tok of tokens) {
+    if (/^[\[\]<>}{,|.!_]$/.test(tok) || /^%/.test(tok) || /^([*!@/])/.test(tok)) continue;
+    const euc = tok.match(/^(.+?)\(/);
+    const raw = euc ? euc[1] : tok;
+    const { rest } = parseDegrade(raw);
+    const { base } = parseMod(rest);
+    if (base === '~' || base === 'r') continue;
+    sawValue = true;
+    if (!/^-?\d+(?:\.\d+)?$/.test(base)) return false;
+  }
+  return sawValue;
+}
+
+function numericPatternValues(pattern) {
+  let tokens;
+  try { tokens = tokenise(pattern); }
+  catch { return []; }
+  const values = [];
+  for (const tok of tokens) {
+    if (/^[\[\]<>}{,|.!_]$/.test(tok) || /^%/.test(tok) || /^([*!@/])/.test(tok)) continue;
+    const euc = tok.match(/^(.+?)\(/);
+    const raw = euc ? euc[1] : tok;
+    const { rest } = parseDegrade(raw);
+    const { base } = parseMod(rest);
+    if (base === '~' || base === 'r') continue;
+    if (/^-?\d+(?:\.\d+)?$/.test(base)) values.push(Number(base));
+  }
+  return values;
+}
+
+function pitchInputForLiveNumeric(kind, pattern) {
+  if (kind === 'note') return 'tidal-note';
+  if (kind !== 'n') return 'name';
+  const values = numericPatternValues(pattern);
+  if (!values.length) return 'name';
+  // In Tidal practice, small `n` values behave like note offsets from c5;
+  // values in the MIDI register keep the explicit MIDI-number workflow.
+  return values.some(v => Math.abs(v) >= 24) ? 'midi' : 'tidal-note';
+}
+
+function cycleValues(raw) {
+  if (!raw) return [];
+  const s = String(raw).trim().replace(/^["']|["']$/g, '');
+  if (/^<.*>$/.test(s)) return s.slice(1, -1).trim().split(/\s+/).filter(Boolean);
+  return [s];
+}
+
+function serializePitchElement(el, addSemis, octaveValue) {
+  if (el.type === 'leaf') {
+    if (el.value === '~' || el.value === 'r') return el.value;
+    const baseMode = /^-?\d+(?:\.\d+)?$/.test(el.value) ? 'tidal-note' : 'name';
+    const info = parseNote(el.value, baseMode);
+    let midi = pitchInfoToMidiNumber(info);
+    if (midi === null) return el.value;
+    const octave = octaveValue !== null && octaveValue !== undefined && octaveValue !== ''
+      ? Number(octaveValue)
+      : null;
+    if (Number.isFinite(octave)) midi = ((midi % 12) + 12) % 12 + octave * 12;
+    midi += addSemis;
+    return pitchInfoToTidalName(midiNumberToPitchInfo(midi));
+  }
+  if (el.children) return `[${el.children.map(c => serializePitchElement(c, addSemis, octaveValue)).join(' ')}]`;
+  if (el.alternatives) return `<${el.alternatives.map(c => serializePitchElement(c, addSemis, octaveValue)).join(' ')}>`;
+  if (el.inner) return serializePitchElement(el.inner, addSemis, octaveValue);
+  return '~';
+}
+
+function transformPitchPattern(basePattern, addArgs = [], octaveArg = null) {
+  let layers;
+  try { layers = promotePoly(parseTokens(tokenise(basePattern), 0).layers); }
+  catch { return basePattern; }
+  const addCycles = addArgs.map(cycleValues).filter(v => v.length);
+  const octaveCycles = octaveArg ? cycleValues(octaveArg) : [];
+  const lengths = [...addCycles.map(v => v.length), octaveCycles.length || 1];
+  const cycleLen = lengths.reduce((a, b) => lcm(a, b || 1), 1);
+  const rendered = [];
+  for (let c = 0; c < cycleLen; c++) {
+    const addSemis = addCycles.reduce((sum, vals) => sum + (parseFloat(vals[c % vals.length]) || 0), 0);
+    const octaveValue = octaveCycles.length ? octaveCycles[c % octaveCycles.length] : null;
+    rendered.push(layers.map(layer =>
+      layer.map(el => serializePitchElement(el, addSemis, octaveValue)).join(' ')
+    ).join(', '));
+  }
+  if (rendered.length === 1) return rendered[0];
+  return `<${rendered.map(p => `[${p}]`).join(' ')}>`;
+}
+
+function sourceBlocks(source) {
+  const lines = source.split(/\r?\n/);
+  const blocks = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\bd\d+\b\s*\$/.test(lines[i])) continue;
+    const parts = [lines[i]];
+    let j = i + 1;
+    while (j < lines.length && /^\s*(?:\|\+|#)/.test(lines[j])) {
+      parts.push(lines[j]);
+      j++;
+    }
+    blocks.push(parts.join('\n'));
+  }
+  return blocks;
+}
+
+function parsePitchSourceBlock(block) {
+  if (!/(?:\|\+|#\s*octave)/.test(block)) return null;
+  const m = block.match(/\b(d\d+)\b\s*\$\s*([\s\S]*?)\b(note|n)\s+([\s\S]*)/);
+  if (!m) return null;
+  const [, line, chainText, kind, rest] = m;
+  const quoted = rest.match(/"([^"]+)"/);
+  if (!quoted) return null;
+  const addArgs = [...block.matchAll(/\|\+\s*(?:note\s+)?("[^"]+"|<[^>]+>|[-+]?\d+(?:\.\d+)?)/g)]
+    .map(x => x[1]);
+  const octaveM = block.match(/#\s*octave\s+("[^"]+"|<[^>]+>|[-+]?\d+(?:\.\d+)?)/);
+  if (!addArgs.length && !octaveM) return null;
+  return {
+    line,
+    chainText,
+    kind,
+    pattern: transformPitchPattern(quoted[1], addArgs, octaveM ? octaveM[1] : null)
+  };
+}
+
+function applyPatternToLine(line, pattern, { flag = false, chain = null, kind = '', sourceManaged = false, pitchInput = '' } = {}) {
   const input    = document.getElementById(`liveInput-${line}`);
   const checkbox = document.getElementById(`flag-${line}`);
   if (!input || !checkbox) return;
@@ -3235,6 +3405,13 @@ function applyPatternToLine(line, pattern, { flag = false, chain = null } = {}) 
   if (flag) checkbox.checked = true;
 
   const row = input.closest('.live-line-row');
+  if (row) {
+    if (kind) row.dataset.kind = kind;
+    if (sourceManaged) row.dataset.sourceManaged = '1';
+    row.dataset.pitchInput = pitchInput || ((kind === 'note' || kind === 'n') && livePatternLooksMidi(pattern)
+      ? pitchInputForLiveNumeric(kind, pattern)
+      : 'name');
+  }
   if (chain !== null && row) {
     row.dataset.chain = JSON.stringify(chain);
     const badge = row.querySelector('.chain-badge');
@@ -3243,6 +3420,31 @@ function applyPatternToLine(line, pattern, { flag = false, chain = null } = {}) 
         `<span class="chain-tag${t.fn === '?' ? ' off' : ''}" title="${t.fn === '?' ? 'not translated on staff (graphic score shows it)' : 'translated'}">${t.raw}</span>`
       ).join('');
     }
+  }
+}
+
+function clearLiveLine(line) {
+  const input = document.getElementById(`liveInput-${line}`);
+  const checkbox = document.getElementById(`flag-${line}`);
+  if (!input || !checkbox) return;
+  const row = input.closest('.live-line-row');
+  input.value = '';
+  checkbox.checked = false;
+  if (row) {
+    row.dataset.chain = '[]';
+    row.dataset.kind = '';
+    row.dataset.pitchInput = '';
+    row.dataset.sourceManaged = '';
+    const badge = row.querySelector('.chain-badge');
+    if (badge) badge.innerHTML = '';
+  }
+}
+
+function clearInactiveSourceLines(activeLines) {
+  for (const row of document.querySelectorAll('.live-line-row')) {
+    if (row.dataset.sourceManaged !== '1') continue;
+    const line = row.querySelector('.live-line-label').textContent.trim();
+    if (!activeLines.has(line)) clearLiveLine(line);
   }
 }
 
@@ -3256,9 +3458,10 @@ function handleBridgeMessage(message) {
   }
 
   if (message.type === 'source-update' && typeof message.source === 'string') {
+    const activeSource = stripTidalComments(message.source);
     // Matches both `setcps (135/60/4)` and bare `setcps 0.55`
-    const cpsM = message.source.match(/setcps\s*\(([^)]+)\)/) ||
-                 message.source.match(/setcps\s+([0-9.]+(?:\s*\/\s*[0-9.]+)*)/);
+    const cpsM = activeSource.match(/setcps\s*\(([^)]+)\)/) ||
+                 activeSource.match(/setcps\s+([0-9.]+(?:\s*\/\s*[0-9.]+)*)/);
     if (cpsM) {
       try {
         const v = Function('"use strict"; return (' + cpsM[1] + ')')();
@@ -3271,47 +3474,76 @@ function handleBridgeMessage(message) {
     }
     markBridgeUpdate();
 
-    const allM = message.source.match(ALL_LINE_RE);
+    const allM = activeSource.match(ALL_LINE_RE);
     allChain = allM ? parseChain(allM[1]) : [];
 
     let match;
+    const activeLines = new Set();
     const handledExprLines = new Set();
+    for (const block of sourceBlocks(activeSource)) {
+      const pitchBlock = parsePitchSourceBlock(block);
+      if (!pitchBlock) continue;
+      activeLines.add(pitchBlock.line);
+      handledExprLines.add(pitchBlock.line);
+      applyPatternToLine(pitchBlock.line, pitchBlock.pattern, {
+        flag: pitchBlock.line === message.selectedLine,
+        chain: parseChain(pitchBlock.chainText),
+        kind: pitchBlock.kind,
+        sourceManaged: true,
+        pitchInput: 'name'
+      });
+    }
+
     TIDAL_SCALE_RE.lastIndex = 0;
-    while ((match = TIDAL_SCALE_RE.exec(message.source))) {
-      const [, line, chainText, , scaleName, degrees] = match;
+    while ((match = TIDAL_SCALE_RE.exec(activeSource))) {
+      const [, line, chainText, kind, , scaleName, degrees] = match;
+      activeLines.add(line);
       handledExprLines.add(line);
       applyPatternToLine(line, degrees, {
         flag: line === message.selectedLine,
-        chain: [...parseChain(chainText), { fn: 'scale', scale: scaleName, root: 'c5', raw: `scale "${scaleName}"` }]
+        chain: [...parseChain(chainText), { fn: 'scale', scale: scaleName, root: 'c5', raw: `scale "${scaleName}"` }],
+        kind,
+        sourceManaged: true,
+        pitchInput: 'name'
       });
     }
 
     TIDAL_CHOOSE_RE.lastIndex = 0;
-    while ((match = TIDAL_CHOOSE_RE.exec(message.source))) {
-      const [, line, chainText, fn, itemsText] = match;
+    while ((match = TIDAL_CHOOSE_RE.exec(activeSource))) {
+      const [, line, chainText, kind, fn, itemsText] = match;
       const items = parseChoiceItems(`[${itemsText}]`);
+      activeLines.add(line);
       handledExprLines.add(line);
       applyPatternToLine(line, '~', {
         flag: line === message.selectedLine,
-        chain: [...parseChain(chainText), { fn, items, raw: `${fn} [${itemsText}]` }]
+        chain: [...parseChain(chainText), { fn, items, raw: `${fn} [${itemsText}]` }],
+        kind,
+        sourceManaged: true,
+        pitchInput: (kind === 'note' || kind === 'n') && items.every(item => /^-?\d+(?:\.\d+)?$/.test(typeof item === 'string' ? item : item.value))
+          ? pitchInputForLiveNumeric(kind, items.map(item => typeof item === 'string' ? item : item.value).join(' '))
+          : 'name'
       });
     }
 
     TIDAL_LINE_RE.lastIndex = 0;
-    while ((match = TIDAL_LINE_RE.exec(message.source))) {
-      const [, line, chainText, pattern] = match;
+    while ((match = TIDAL_LINE_RE.exec(activeSource))) {
+      const [, line, chainText, kind, pattern] = match;
       if (handledExprLines.has(line)) continue;
+      activeLines.add(line);
       applyPatternToLine(line, pattern, {
         flag: line === message.selectedLine,
-        chain: parseChain(chainText)
+        chain: parseChain(chainText),
+        kind,
+        sourceManaged: true
       });
     }
+    clearInactiveSourceLines(activeLines);
     scheduleLiveRender();
     return;
   }
 
   if (message.type === 'pattern-update' && message.line && typeof message.pattern === 'string') {
-    applyPatternToLine(message.line, message.pattern, { flag: true });
+    applyPatternToLine(message.line, message.pattern, { flag: true, kind: message.kind || '', sourceManaged: false });
     markBridgeUpdate();
     scheduleLiveRender();
     return;

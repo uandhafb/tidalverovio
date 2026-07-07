@@ -5,16 +5,7 @@
 -- Suggested page settings: Mode = Rhythm, Score view = Both, Cycles = 1
 -- ═══════════════════════════════════════════════════════════════════
 
-setcps number value as 0.3
-
--- 1 Notes, Chords, Scales and Arpeggios
-In Tidal Cycles, note 0 is C5, and in MIDI, C5 is note 60: 
-https://tidalcycles.org/docs/configuration/MIDIOSC/midi/
--- @score 
-
-
-
-
+setcps 0.5625
 
 -- 1 ── BASIC BEAT: the pipeline. Typing alone fills the d1 row; @score
 --      flags it. Cycle ring pulses with the audio, playhead sweeps.

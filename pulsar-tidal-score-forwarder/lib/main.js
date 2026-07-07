@@ -234,12 +234,12 @@ function extractSelectedOrCurrentPattern(editor) {
 }
 
 function extractPatternFromLine(raw) {
-  const match = raw.match(/\b(d\d+)\b.*?\b(sound|s|note|n)\s+"([^"]+)"/);
+  const match = raw.match(/\b(d\d+)\b.*?\b(sound|s|note|n)\s+(?:\([^"]*"([^"]+)"|"([^"]+)")/);
   if (!match) return null;
   return {
     line: match[1],
     kind: match[2],
-    pattern: match[3]
+    pattern: match[3] || match[4]
   };
 }
 

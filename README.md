@@ -55,7 +55,7 @@ In this exact order (about 90 seconds total):
 3. **SuperCollider** — start SuperDirt as usual.
 4. **Pulsar** — menu **Packages → TidalCycles → Boot TidalCycles** → wait for "Connected to SuperDirt".
    *One-off red "skip: N" at boot is harmless. If you edited BootTidal.hs since the last boot, use **Reboot** — boot-file changes only load on (re)boot; confirm by the page's cycle ring showing a small number.*
-5. **Play** — open `demo.tidal` (a prepared line-by-line demo) or your own `.tidal` file; evaluate lines with `Cmd+Enter`. Typing auto-fills the Live Lines rows; `-- @score` above a line auto-flags it.
+5. **Play** — open `examples.tidal` (a prepared line-by-line demo) or your own `.tidal` file; evaluate lines with `Cmd+Enter`. Typing auto-fills the Live Lines rows; `-- @score` above a line auto-flags it.
 
 Panic buttons: `hush` in Pulsar silences everything; the browser page never needs restarting — worst case, refresh it and click Connect again.
 

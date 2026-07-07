@@ -286,7 +286,7 @@ function firstFlaggedLine(source) {
       pendingScore = true;
       continue;
     }
-    const match = trimmed.match(/\b(d\d+)\b.*?(?:sound|s|note|n)\s+"([^"]+)"/);
+    const match = trimmed.match(/\b(d\d+)\b.*?(?:sound|s|note|n)\s+(?:\([^"]*"([^"]+)"|"([^"]+)")/);
     if (match && (pendingScore || /@score/.test(trimmed))) return match[1];
     pendingScore = false;
   }
