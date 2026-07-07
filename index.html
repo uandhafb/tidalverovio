@@ -634,8 +634,8 @@
         <label class="field">
           Pitch input
           <select id="pitchInputOpt">
-            <option value="name" selected>Note names (c4)</option>
-            <option value="midi">Numbers (60 = c5, Tidal)</option>
+            <option value="name" selected>Names + numbers (Tidal, 0 = c5)</option>
+            <option value="midi">Raw MIDI (60 = c5)</option>
           </select>
         </label>
         <label class="field">
@@ -787,11 +787,32 @@ class Fraction {
   add(f) { return new Fraction(this.n * f.d + f.n * this.d, this.d * f.d); }
   sub(f) { return new Fraction(this.n * f.d - f.n * this.d, this.d * f.d); }
   mul(f) { return new Fraction(this.n * f.n, this.d * f.d); }
+  div(f) { return new Fraction(this.n * f.d, this.d * f.n); }
   toFloat() { return this.n / this.d; }
   toString() { return `${this.n}/${this.d}`; }
 }
 
 function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
+function lcm(a, b) { return Math.abs(a * b) / gcd(Math.abs(a), Math.abs(b)); }
+function cmpFrac(a, b) { return a.n * b.d - b.n * a.d; }
+function minFrac(a, b) { return cmpFrac(a, b) <= 0 ? a : b; }
+function maxFrac(a, b) { return cmpFrac(a, b) >= 0 ? a : b; }
+function clamp01Frac(f) {
+  if (cmpFrac(f, new Fraction(0)) < 0) return new Fraction(0);
+  if (cmpFrac(f, new Fraction(1)) > 0) return new Fraction(1);
+  return f;
+}
+function fractionFromFloat(x, maxDen = 384) {
+  if (!Number.isFinite(x)) return new Fraction(0);
+  let best = new Fraction(Math.round(x), 1), bestDiff = Math.abs(x - best.toFloat());
+  for (let d = 1; d <= maxDen; d++) {
+    const n = Math.round(x * d);
+    const diff = Math.abs(x - n / d);
+    if (diff < bestDiff) { best = new Fraction(n, d); bestDiff = diff; }
+    if (diff < 1e-9) break;
+  }
+  return best;
+}
 
 function isPow2(n) { return n > 0 && (n & (n - 1)) === 0; }
 function lowerPow2(n) { let p = 1; while (p * 2 <= n) p *= 2; return p; }
@@ -878,6 +899,44 @@ function parseModNum(s) {
 }
 const MOD_NUM_RE = '\\d+(?:\\.\\d+)?(?:%\\d+(?:\\.\\d+)?)?';
 
+const TIME_SHORTHANDS = { w: 1, h: 1/2, t: 1/3, q: 1/4, f: 1/5, x: 1/6, e: 1/8, s: 1/16 };
+function parseTimeValue(raw) {
+  if (raw === undefined || raw === null) return null;
+  let s = String(raw).trim().replace(/^["']|["']$/g, '');
+  if (!s) return null;
+  const shorthand = s.match(/^(\d+(?:\.\d+)?)?([whtqfxes])$/);
+  if (shorthand) return (shorthand[1] ? parseFloat(shorthand[1]) : 1) * TIME_SHORTHANDS[shorthand[2]];
+  const frac = s.match(/^\(?\s*(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)\s*\)?$/);
+  if (frac) {
+    const den = parseFloat(frac[2]);
+    return den ? parseFloat(frac[1]) / den : null;
+  }
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseArc(text) {
+  const m = text.trim().match(/^\(?\s*([^,\s]+)\s*,\s*([^)]+?)\s*\)?$/);
+  if (!m) return null;
+  const a = parseTimeValue(m[1]);
+  const b = parseTimeValue(m[2]);
+  if (!(a >= 0) || !(b >= 0) || b <= a) return null;
+  return { start: Math.max(0, Math.min(1, a)), end: Math.max(0, Math.min(1, b)) };
+}
+
+function parseQuotedPattern(text) {
+  const m = text.match(/"([^"]+)"/);
+  if (!m) return null;
+  try {
+    return promotePoly(parseTokens(tokenise(m[1]), 0).layers);
+  } catch { return null; }
+}
+
+function firstQuotedPattern(text) {
+  const m = text.match(/"([^"]+)"/);
+  return m ? m[1] : null;
+}
+
 // Parse modifier suffix: c4*3  c4!2  c4@3  c4/2  bd*4%2
 function parseMod(tok) {
   const m = tok.match(new RegExp(`^(.*?)([*!@/])(${MOD_NUM_RE})$`));
@@ -902,8 +961,13 @@ function applyProb(el, prob) {
   if (prob >= 1) return el;
   if (el.type === 'leaf') return { ...el, prob };
   if (el.children) return { ...el, children: el.children.map(c => applyProb(c, prob)) };
+  if (el.alternatives) return { ...el, alternatives: el.alternatives.map(c => applyProb(c, prob)) };
   if (el.inner) return { ...el, inner: applyProb(el.inner, prob) };
   return el;
+}
+
+function applyProbToLayers(layers, prob) {
+  return layers.map(layer => layer.map(el => applyProb(el, prob)));
 }
 
 // Recursive descent parser. Returns { layers, pos }.
@@ -1107,7 +1171,57 @@ function parseTokens(tokens, pos, closeTok = null) {
 // are translated — random functions (sometimes, irand…) and effects (cut,
 // gain…) can't honestly live on a staff; the graphic score shows those.
 
-const SUPPORTED_FNS = new Set(['rev', 'palindrome', 'fast', 'density', 'hurry', 'ply', 'every', 'repeatCycles', 'jux', 'juxBy', 'superimpose', 'iter', "iter'", 'degradeBy', 'unDegradeBy', 'euclid', 'euclidInv', 'euclidOff', 'whenmod', 'rot', 'always', 'never', 'struct']);
+const SUPPORTED_FNS = new Set([
+  'rev', 'palindrome', 'fast', 'density', 'hurry', 'ply', 'every', "every'", 'foldEvery',
+  'repeatCycles', 'jux', 'juxBy', 'superimpose', 'iter', "iter'", 'degradeBy', 'unDegradeBy',
+  'euclid', 'euclidInv', 'euclidOff', 'euclidFull', 'whenmod', 'rot', 'always', 'never', 'struct',
+  'mask', 'sew', 'stitch', 'sometimes', 'sometimesBy', 'someCycles', 'someCyclesBy',
+  'almostAlways', 'often', 'rarely', 'almostNever', 'choose', 'wchoose', 'cycleChoose',
+  'slow', 'sparsity', 'fastGap', 'densityGap', 'compress', 'zoom', 'within', 'off',
+  'press', 'pressBy', 'swing', 'swingBy', 'scale', 'toScale', 'arp', 'arpg', 'arpeggiate',
+  'rolled', 'rolledBy'
+]);
+
+function parseBoolPatternArg(text) {
+  const pat = firstQuotedPattern(text);
+  if (!pat) return null;
+  try { return parseTokens(tokenise(pat), 0).layers[0]; }
+  catch { return null; }
+}
+
+function parseChoiceItems(text) {
+  const q = firstQuotedPattern(text);
+  if (q) return q.split(/\s+/).filter(Boolean);
+  const m = text.match(/\[(.+)\]/);
+  if (!m) return [];
+  return m[1]
+    .split(/,(?![^()]*\))/)
+    .map(s => s.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean)
+    .map(s => {
+      const pair = s.match(/^\(?\s*([^,\s()]+)\s*,\s*([0-9.]+)\s*\)?$/);
+      return pair ? { value: pair[1].replace(/^["']|["']$/g, ''), weight: parseFloat(pair[2]) } : s;
+    });
+}
+
+function choicesToAlt(items, weighted = false) {
+  const alternatives = [];
+  for (const item of items) {
+    const value = typeof item === 'string' ? item : item.value;
+    const prob = weighted && typeof item !== 'string' && Number.isFinite(item.weight) ? Math.max(0.05, Math.min(1, item.weight)) : 0.5;
+    alternatives.push(applyProb({ type: 'leaf', value, weight: 1 }, prob));
+  }
+  return [{ type: 'alt', alternatives, weight: 1, random: true }];
+}
+
+const PROB_ALIASES = {
+  sometimes: 0.5,
+  often: 0.75,
+  rarely: 0.25,
+  almostAlways: 0.9,
+  almostNever: 0.1,
+  someCycles: 0.5
+};
 
 // One segment ("every 4 rev") → descriptor {fn, n?, inner?} or {fn:'?', raw}.
 // Parentheses act as grouping only, so "every 2 (jux rev)" parses like
@@ -1120,6 +1234,68 @@ function parseChainSegment(seg) {
       const bool = parseTokens(tokenise(structM[1]), 0).layers[0];
       return { fn: 'struct', bool, raw: seg.trim() };
     } catch { return { fn: '?', raw: seg.trim() }; }
+  }
+
+  const maskM = seg.trim().match(/^mask\s+"([^"]+)"$/);
+  if (maskM) {
+    try {
+      const bool = parseTokens(tokenise(maskM[1]), 0).layers[0];
+      return { fn: 'mask', bool, raw: seg.trim() };
+    } catch { return { fn: '?', raw: seg.trim() }; }
+  }
+
+  const sewM = seg.trim().match(/^(sew|stitch)\s+"([^"]+)"\s+"([^"]+)"$/);
+  if (sewM) {
+    try {
+      const bool = parseTokens(tokenise(sewM[2]), 0).layers[0];
+      const altLayers = promotePoly(parseTokens(tokenise(sewM[3]), 0).layers);
+      return { fn: sewM[1], bool, altLayers, raw: seg.trim() };
+    } catch { return { fn: '?', raw: seg.trim() }; }
+  }
+
+  const euclidFullM = seg.trim().match(/^euclidFull\s+(\d+)\s+(\d+)(?:\s+"([^"]+)")?$/);
+  if (euclidFullM) {
+    const k = parseInt(euclidFullM[1]), n = parseInt(euclidFullM[2]);
+    let altLayers = [[{ type: 'leaf', value: '~', weight: 1 }]];
+    if (euclidFullM[3]) {
+      try { altLayers = promotePoly(parseTokens(tokenise(euclidFullM[3]), 0).layers); }
+      catch { return { fn: '?', raw: seg.trim() }; }
+    }
+    return { fn: 'euclidFull', k, n, altLayers, raw: seg.trim() };
+  }
+
+  const arcM = seg.trim().match(/^(compress|zoom)\s+(\([^)]+\)|[^ ]+)$/);
+  if (arcM) {
+    const arc = parseArc(arcM[2]);
+    return arc ? { fn: arcM[1], ...arc, raw: seg.trim() } : { fn: '?', raw: seg.trim() };
+  }
+
+  const withinM = seg.trim().match(/^within\s+(\([^)]+\))\s+(.+)$/);
+  if (withinM) {
+    const arc = parseArc(withinM[1]);
+    const inner = parseChainSegment(withinM[2]);
+    if (!arc || !inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'within', ...arc, inner, raw: seg.trim() };
+  }
+
+  const offM = seg.trim().match(/^off\s+([^\s]+)\s+(.+)$/);
+  if (offM) {
+    const amount = parseTimeValue(offM[1]);
+    const inner = parseChainSegment(offM[2]);
+    if (amount === null || !inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'off', amount, inner, raw: seg.trim() };
+  }
+
+  const choiceM = seg.trim().match(/^(choose|cycleChoose|wchoose)\s+(.+)$/);
+  if (choiceM) {
+    const items = parseChoiceItems(choiceM[2]);
+    if (!items.length) return { fn: '?', raw: seg.trim() };
+    return { fn: choiceM[1], items, raw: seg.trim() };
+  }
+
+  const scaleM = seg.trim().match(/^(scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?(?:\s+"?([a-gA-G][sf#b]?\d*)"?)?$/);
+  if (scaleM) {
+    return { fn: 'scale', scale: scaleM[2], root: scaleM[3] || 'c5', raw: seg.trim() };
   }
 
   const words = seg.replace(/[()]/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -1163,10 +1339,66 @@ function parseChainSegment(seg) {
     return { fn: 'whenmod', a, b, inner, raw: seg.trim() };
   }
 
+  if (head === "every'") {
+    const n = parseInt(rest[0]), offset = parseInt(rest[1]);
+    const inner = parseChainSegment(rest.slice(2).join(' '));
+    if (!Number.isInteger(n) || n < 1 || !Number.isInteger(offset) || !inner || inner.fn === '?')
+      return { fn: '?', raw: seg.trim() };
+    return { fn: "every'", n, offset, inner, raw: seg.trim() };
+  }
+
+  if (head === 'foldEvery') {
+    const list = (rest[0] || '').match(/^\[([0-9,\s]+)\]$/);
+    const ns = list ? list[1].split(',').map(s => parseInt(s.trim())).filter(n => Number.isInteger(n) && n > 0) : [];
+    const inner = parseChainSegment(rest.slice(1).join(' '));
+    if (!ns.length || !inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'foldEvery', ns, inner, raw: seg.trim() };
+  }
+
   if (head === 'rot') {
     const n = parseInt(rest[0]);
     if (!Number.isInteger(n)) return { fn: '?', raw: seg.trim() };
     return { fn: 'rot', n, raw: seg.trim() };
+  }
+
+  if (head === 'slow' || head === 'sparsity' || head === 'fastGap' || head === 'densityGap') {
+    const n = parseInt(rest[0]);
+    if (!Number.isInteger(n) || n < 1) return { fn: '?', raw: seg.trim() };
+    const fn = head === 'sparsity' ? 'slow' : head === 'densityGap' ? 'fastGap' : head;
+    return { fn, n, raw: seg.trim() };
+  }
+
+  if (head === 'press') {
+    return { fn: 'press', raw: seg.trim() };
+  }
+
+  if (head === 'swing') {
+    // Tidal: swing n == swingBy (1/3) n; default 4 when omitted
+    const n = rest[0] !== undefined ? parseInt(rest[0]) : 4;
+    if (!Number.isInteger(n) || n < 1) return { fn: '?', raw: seg.trim() };
+    return { fn: 'swing', n, raw: seg.trim() };
+  }
+
+  if (head === 'pressBy') {
+    const amount = parseTimeValue(rest[0]);
+    if (amount === null) return { fn: '?', raw: seg.trim() };
+    return { fn: 'pressBy', amount, raw: seg.trim() };
+  }
+
+  if (head === 'swingBy') {
+    const amount = parseTimeValue(rest[0]);
+    const slices = parseInt(rest[1]);
+    if (amount === null || !Number.isInteger(slices) || slices < 1) return { fn: '?', raw: seg.trim() };
+    return { fn: 'swingBy', amount, slices, raw: seg.trim() };
+  }
+
+  if (head === 'arp' || head === 'arpg' || head === 'arpeggiate') {
+    return { fn: 'arp', mode: rest[0] || 'up', raw: seg.trim() };
+  }
+
+  if (head === 'rolled' || head === 'rolledBy') {
+    const amount = head === 'rolledBy' ? (parseTimeValue(rest[0]) ?? 0.08) : 0.08;
+    return { fn: 'rolled', amount, raw: seg.trim() };
   }
 
   if (head === 'fast' || head === 'density' || head === 'hurry' || head === 'ply' || head === 'iter' || head === "iter'" || head === 'repeatCycles') {
@@ -1182,6 +1414,19 @@ function parseChainSegment(seg) {
     const x = parseFloat(rest[0]);
     if (!(x >= 0 && x <= 1)) return { fn: '?', raw: seg.trim() };
     return { fn: head, n: x, raw: seg.trim() };
+  }
+
+  if (head === 'sometimesBy' || head === 'someCyclesBy') {
+    const p = parseFloat(rest[0]);
+    const inner = parseChainSegment(rest.slice(1).join(' '));
+    if (!(p >= 0 && p <= 1) || !inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'probTransform', prob: p, inner, raw: seg.trim() };
+  }
+
+  if (PROB_ALIASES[head] !== undefined) {
+    const inner = parseChainSegment(rest.join(' '));
+    if (!inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: 'probTransform', prob: PROB_ALIASES[head], inner, raw: seg.trim() };
   }
 
   if (head === 'every') {
@@ -1291,6 +1536,54 @@ function structApply(boolEls, events, offset, length, cycleIndex) {
   return out;
 }
 
+function selectApply(boolEls, trueEvents, falseEvents, offset, length, cycleIndex) {
+  const total = boolEls.reduce((s, e) => s + e.weight, 0);
+  let cursor = offset;
+  const out = [];
+  for (const raw of boolEls) {
+    const elLen = length.mul(new Fraction(raw.weight, total));
+    const { el, c } = resolveNode(raw, cycleIndex);
+    if (el.type === 'leaf') {
+      const truthy = el.value === 't' || el.value === 'true' || el.value === '1';
+      out.push({
+        type: 'leaf',
+        value: valueAtPosition(truthy ? trueEvents : falseEvents, cursor.toFloat()),
+        weight: raw.weight
+      });
+    } else {
+      out.push({
+        type: 'group',
+        children: selectApply(el.children, trueEvents, falseEvents, cursor, elLen, c),
+        weight: raw.weight
+      });
+    }
+    cursor = cursor.add(elLen);
+  }
+  return out;
+}
+
+function maskApply(boolEls, events, offset, length, cycleIndex) {
+  const total = boolEls.reduce((s, e) => s + e.weight, 0);
+  let cursor = offset;
+  const out = [];
+  for (const raw of boolEls) {
+    const elLen = length.mul(new Fraction(raw.weight, total));
+    const { el, c } = resolveNode(raw, cycleIndex);
+    if (el.type === 'leaf') {
+      const truthy = el.value === 't' || el.value === 'true' || el.value === '1';
+      out.push({
+        type: 'leaf',
+        value: truthy ? valueAtPosition(events, cursor.toFloat()) : '~',
+        weight: raw.weight
+      });
+    } else {
+      out.push({ type: 'group', children: maskApply(el.children, events, cursor, elLen, c), weight: raw.weight });
+    }
+    cursor = cursor.add(elLen);
+  }
+  return out;
+}
+
 // rot n: rotate the VALUES among sounding leaves while the rhythm (and
 // every rest) stays exactly where it is.
 function rotValues(elements, n) {
@@ -1317,6 +1610,70 @@ function rotValues(elements, n) {
   return rebuild(elements);
 }
 
+function chordLeafNames(value) {
+  const chord = parseChord(value);
+  if (!chord || !chord.chord) return null;
+  return chord.chord.map(pitchInfoToTidalName);
+}
+
+function orderedArpValues(values, mode) {
+  if (mode === 'down') return values.slice().reverse();
+  if (mode === 'updown') return [...values, ...values.slice(1, -1).reverse()];
+  if (mode === 'downup') {
+    const down = values.slice().reverse();
+    return [...down, ...down.slice(1, -1).reverse()];
+  }
+  if (mode === 'converge') {
+    const out = [];
+    let l = 0, r = values.length - 1;
+    while (l <= r) { out.push(values[l++]); if (l <= r) out.push(values[r--]); }
+    return out;
+  }
+  if (mode === 'diverge') {
+    const mid = Math.floor((values.length - 1) / 2);
+    const out = [values[mid]];
+    for (let i = 1; out.length < values.length; i++) {
+      if (mid - i >= 0) out.push(values[mid - i]);
+      if (mid + i < values.length) out.push(values[mid + i]);
+    }
+    return out;
+  }
+  return values;
+}
+
+function arpElements(elements, mode = 'up') {
+  return elements.map(el => {
+    if (el.type === 'leaf') {
+      const values = chordLeafNames(el.value);
+      if (!values) return el;
+      return { type: 'group', children: orderedArpValues(values, mode).map(value => ({ type: 'leaf', value, weight: 1, prob: el.prob })), weight: el.weight };
+    }
+    if (el.children) return { ...el, children: arpElements(el.children, mode) };
+    if (el.alternatives) return { ...el, alternatives: arpElements(el.alternatives, mode) };
+    if (el.inner) return { ...el, inner: arpElements([el.inner], mode)[0] };
+    return el;
+  });
+}
+
+function rolledElements(elements, amount = 0.08) {
+  return elements.map(el => {
+    if (el.type === 'leaf') {
+      const values = chordLeafNames(el.value);
+      if (!values) return el;
+      const restWeight = Math.max(0.05, Math.min(0.45, amount));
+      return {
+        type: 'group',
+        children: values.map((value, i) => ({ type: 'leaf', value, weight: i === values.length - 1 ? 1 : restWeight, prob: el.prob })),
+        weight: el.weight
+      };
+    }
+    if (el.children) return { ...el, children: rolledElements(el.children, amount) };
+    if (el.alternatives) return { ...el, alternatives: rolledElements(el.alternatives, amount) };
+    if (el.inner) return { ...el, inner: rolledElements([el.inner], amount)[0] };
+    return el;
+  });
+}
+
 // Apply one transform to a single layer (a sequence of elements).
 function applyTransform(elements, t, cycleIndex) {
   switch (t.fn) {
@@ -1324,6 +1681,30 @@ function applyTransform(elements, t, cycleIndex) {
     case 'palindrome': return ((cycleIndex % 2) + 2) % 2 === 1 ? revElements(elements) : elements;
     case 'ply':        return plyElements(elements, t.n);
     case 'iter':       return iterElements(elements, t.n, cycleIndex);
+    case 'slow': {
+      const phase = ((cycleIndex % t.n) + t.n) % t.n;
+      return sliceElements(elements, phase / t.n, (phase + 1) / t.n, Math.floor(cycleIndex / t.n));
+    }
+    case 'fastGap':
+      return compressElements(elements, 0, 1 / t.n);
+    case 'compress':
+      return compressElements(elements, t.start, t.end);
+    case 'zoom':
+      return sliceElements(elements, t.start, t.end, cycleIndex);
+    case 'press':
+      return pressElements(elements, 0.5);
+    case 'pressBy':
+      return pressElements(elements, t.amount);
+    case 'swing':
+      return swingElements(elements, 1/3, t.n || 4, cycleIndex);
+    case 'swingBy':
+      return swingElements(elements, t.amount, t.slices, cycleIndex);
+    case 'scale':
+      return scaleValues(elements, t.scale, t.root);
+    case 'arp':
+      return arpElements(elements, t.mode);
+    case 'rolled':
+      return rolledElements(elements, t.amount);
     // degradeBy x: each event REMOVED with probability x → plays with 1-x.
     // unDegradeBy x: each event KEPT with probability x.
     case 'degradeBy':   return elements.map(el => applyProb(el, 1 - t.n));
@@ -1348,9 +1729,32 @@ function applyTransform(elements, t, cycleIndex) {
       }));
       return [{ type: 'group', children, weight: 1 }];
     }
+    case 'euclidFull': {
+      const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
+      const altLayer = (t.altLayers && t.altLayers[0]) || [{ type: 'leaf', value: '~', weight: 1 }];
+      const altEvents = elementsToEvents(altLayer, new Fraction(0), new Fraction(1), cycleIndex);
+      const hits = euclidPattern(t.k, t.n);
+      const children = hits.map((hit, i) => ({
+        type: 'leaf',
+        value: valueAtPosition(hit ? events : altEvents, i / t.n),
+        weight: 1
+      }));
+      return [{ type: 'group', children, weight: 1 }];
+    }
     case 'struct': {
       const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
       return structApply(t.bool, events, new Fraction(0), new Fraction(1), cycleIndex);
+    }
+    case 'mask': {
+      const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
+      return maskApply(t.bool, events, new Fraction(0), new Fraction(1), cycleIndex);
+    }
+    case 'sew':
+    case 'stitch': {
+      const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
+      const altLayer = (t.altLayers && t.altLayers[0]) || [{ type: 'leaf', value: '~', weight: 1 }];
+      const altEvents = elementsToEvents(altLayer, new Fraction(0), new Fraction(1), cycleIndex);
+      return selectApply(t.bool, events, altEvents, new Fraction(0), new Fraction(1), cycleIndex);
     }
     case 'fast': {
       // N copies squeezed into one cycle; copy k sees cycle c*N+k so that
@@ -1386,9 +1790,54 @@ function applyTransformLayers(layers, t, cycleIndex) {
   if (t.fn === 'every')
     return ((cycleIndex % t.n) + t.n) % t.n === 0
       ? applyTransformLayers(layers, t.inner, cycleIndex) : layers;
+  if (t.fn === "every'")
+    return ((cycleIndex % t.n) + t.n) % t.n === ((t.offset % t.n) + t.n) % t.n
+      ? applyTransformLayers(layers, t.inner, cycleIndex) : layers;
+  if (t.fn === 'foldEvery') {
+    let out = layers;
+    for (const n of t.ns)
+      if (((cycleIndex % n) + n) % n === 0) out = applyTransformLayers(out, t.inner, cycleIndex);
+    return out;
+  }
   if (t.fn === 'whenmod')
     return ((cycleIndex % t.a) + t.a) % t.a >= t.b
       ? applyTransformLayers(layers, t.inner, cycleIndex) : layers;
+  if (t.fn === 'probTransform')
+    // Both possibilities visible: the base pattern in black (what is
+    // certain) plus the transformed version as a grey ghost voice shaded
+    // by its probability (what might happen).
+    return layers.flatMap(layer => [
+      layer,
+      ...applyProbToLayers(applyTransformLayers([layer], t.inner, cycleIndex), t.prob)
+    ]);
+  if (t.fn === 'choose' || t.fn === 'wchoose' || t.fn === 'cycleChoose')
+    return layers.map(() => choicesToAlt(t.items, t.fn === 'wchoose'));
+  if (t.fn === 'within') {
+    return layers.flatMap(layer => {
+      const before = t.start > 0 ? sliceElements(layer, 0, t.start, cycleIndex) : [];
+      const middle = sliceElements(layer, t.start, t.end, cycleIndex);
+      const after = t.end < 1 ? sliceElements(layer, t.end, 1, cycleIndex) : [];
+      const transformed = applyTransformLayers([middle], t.inner, cycleIndex);
+      const primary = [];
+      if (before.length) primary.push({ type: 'group', children: before, weight: t.start });
+      primary.push({ type: 'group', children: transformed[0] || middle, weight: t.end - t.start });
+      if (after.length) primary.push({ type: 'group', children: after, weight: 1 - t.end });
+      const extras = transformed.slice(1).map(extra => {
+        const out = [];
+        if (t.start > 0) out.push({ type: 'leaf', value: '~', weight: t.start });
+        out.push({ type: 'group', children: extra, weight: t.end - t.start });
+        if (t.end < 1) out.push({ type: 'leaf', value: '~', weight: 1 - t.end });
+        return out;
+      });
+      return [primary, ...extras];
+    });
+  }
+  if (t.fn === 'off') {
+    return layers.flatMap(layer => {
+      const transformed = applyTransformLayers([layer], t.inner, cycleIndex);
+      return [layer, ...transformed.map(l => shiftElements(l, t.amount, cycleIndex))];
+    });
+  }
   return layers.map(layer => applyTransform(layer, t, cycleIndex));
 }
 
@@ -1419,13 +1868,162 @@ function elementsToEvents(elements, offset, length, cycleIndex = 0) {
     const elLen = length.mul(new Fraction(raw.weight, totalWeight));
     const { el: resolved, c } = resolveNode(raw, cycleIndex);
     if (resolved.type === 'leaf') {
-      events.push({ value: resolved.value, begin: cursor, end: cursor.add(elLen) });
+      const ev = { value: resolved.value, begin: cursor, end: cursor.add(elLen) };
+      if (resolved.prob !== undefined) ev.prob = resolved.prob;
+      events.push(ev);
     } else {
       events.push(...elementsToEvents(resolved.children, cursor, elLen, c));
     }
     cursor = cursor.add(elLen);
   }
   return events;
+}
+
+function segmentsToElements(segments) {
+  const clean = segments
+    .map(s => ({
+      value: s.value,
+      begin: clamp01Frac(s.begin),
+      end: clamp01Frac(s.end),
+      prob: s.prob
+    }))
+    .filter(s => cmpFrac(s.end, s.begin) > 0)
+    .sort((a, b) => cmpFrac(a.begin, b.begin));
+
+  const filled = [];
+  let cursor = new Fraction(0);
+  for (const s of clean) {
+    if (cmpFrac(s.begin, cursor) > 0)
+      filled.push({ value: '~', begin: cursor, end: s.begin });
+    const begin = maxFrac(s.begin, cursor);
+    if (cmpFrac(s.end, begin) > 0) {
+      filled.push({ value: s.value, begin, end: s.end, prob: s.prob });
+      cursor = s.end;
+    }
+  }
+  if (cmpFrac(cursor, new Fraction(1)) < 0)
+    filled.push({ value: '~', begin: cursor, end: new Fraction(1) });
+  if (!filled.length) filled.push({ value: '~', begin: new Fraction(0), end: new Fraction(1) });
+
+  let den = 1, capped = false;
+  for (const s of filled) {
+    den = lcm(den, s.end.sub(s.begin).d);
+    if (den > 768) { den = 768; capped = true; break; }
+  }
+  if (capped) iterApproximated++; // surfaces as "approximated" in the status
+
+  const out = [];
+  for (const s of filled) {
+    const exactW = s.end.sub(s.begin).toFloat() * den;
+    const weight = Math.max(1, Math.round(exactW));
+    if (Math.abs(exactW - weight) > 1e-6) iterApproximated++;
+    const prev = out[out.length - 1];
+    // Only RESTS merge — two adjacent identical notes are two attacks,
+    // fusing them would silently turn repeated notes into one held note.
+    if (prev && prev.type === 'leaf' && prev.value === s.value && prev.prob === s.prob &&
+        (s.value === '~' || s.value === 'r')) {
+      prev.weight += weight;
+    } else {
+      const el = { type: 'leaf', value: s.value, weight };
+      if (s.prob !== undefined) el.prob = s.prob;
+      out.push(el);
+    }
+  }
+  return out;
+}
+
+function sliceElements(elements, start, end, cycleIndex) {
+  const a = fractionFromFloat(start);
+  const b = fractionFromFloat(end);
+  const span = b.sub(a);
+  if (cmpFrac(span, new Fraction(0)) <= 0) return [{ type: 'leaf', value: '~', weight: 1 }];
+  const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
+  const segments = [];
+  for (const e of events) {
+    const begin = maxFrac(e.begin, a);
+    const finish = minFrac(e.end, b);
+    if (cmpFrac(finish, begin) <= 0) continue;
+    segments.push({
+      value: e.value,
+      begin: begin.sub(a).div(span),
+      end: finish.sub(a).div(span),
+      prob: e.prob
+    });
+  }
+  return segmentsToElements(segments);
+}
+
+function compressElements(elements, start, end) {
+  const a = Math.max(0, Math.min(1, start));
+  const b = Math.max(0, Math.min(1, end));
+  if (!(b > a)) return elements;
+  const children = [];
+  if (a > 0) children.push({ type: 'leaf', value: '~', weight: a });
+  children.push({ type: 'group', children: elements, weight: b - a });
+  if (b < 1) children.push({ type: 'leaf', value: '~', weight: 1 - b });
+  return children;
+}
+
+function shiftElements(elements, amount, cycleIndex) {
+  const shift = ((amount % 1) + 1) % 1;
+  if (shift === 0) return elements;
+  const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
+  const segments = [];
+  for (const e of events) {
+    if (e.value === '~' || e.value === 'r') continue;
+    const begin = e.begin.toFloat() + shift;
+    const end = e.end.toFloat() + shift;
+    const prob = e.prob;
+    if (end <= 1) {
+      segments.push({ value: e.value, begin: fractionFromFloat(begin), end: fractionFromFloat(end), prob });
+    } else {
+      segments.push({ value: e.value, begin: fractionFromFloat(begin % 1), end: new Fraction(1), prob });
+      segments.push({ value: e.value, begin: new Fraction(0), end: fractionFromFloat(end - 1), prob });
+    }
+  }
+  return segmentsToElements(segments);
+}
+
+function pressElements(elements, amount) {
+  const a = Math.max(0, Math.min(0.999, amount));
+  if (a <= 0) return elements;
+  return elements.map(el => {
+    if (el.type === 'leaf') {
+      if (el.value === '~' || el.value === 'r') return el;
+      return { type: 'group', children: [
+        { type: 'leaf', value: '~', weight: a },
+        { ...el, weight: 1 - a }
+      ], weight: el.weight };
+    }
+    if (el.children) return { ...el, children: pressElements(el.children, a) };
+    if (el.inner) return { ...el, inner: pressElements([el.inner], a)[0] };
+    return el;
+  });
+}
+
+function swingElements(elements, amount, slices, cycleIndex) {
+  const n = Math.max(1, Math.round(slices));
+  const x = Math.max(0, Math.min(0.999, amount));
+  if (x <= 0) return elements;
+  const half = 1 / (n * 2);
+  const delay = half * x;
+  const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
+  const segments = [];
+  for (const e of events) {
+    const b = e.begin.toFloat();
+    const slicePos = (b * n) % 1;
+    const shifted = slicePos >= 0.5 ? delay : 0;
+    let begin = b + shifted;
+    let end = e.end.toFloat() + shifted;
+    if (begin >= 1) { begin -= 1; end -= 1; }
+    if (end <= 1) {
+      segments.push({ value: e.value, begin: fractionFromFloat(begin), end: fractionFromFloat(end), prob: e.prob });
+    } else {
+      segments.push({ value: e.value, begin: fractionFromFloat(begin), end: new Fraction(1), prob: e.prob });
+      segments.push({ value: e.value, begin: new Fraction(0), end: fractionFromFloat(end - 1), prob: e.prob });
+    }
+  }
+  return segmentsToElements(segments);
 }
 
 function evalPattern(src, numCycles = 1, startCycle = 0) {
@@ -1488,6 +2086,27 @@ const MIDI_PITCH_CLASSES = [
   ['c',''], ['c','s'], ['d',''], ['d','s'], ['e',''], ['f',''],
   ['f','s'], ['g',''], ['g','s'], ['a',''], ['a','s'], ['b','']
 ];
+const PITCH_CLASS_TO_SEMITONE = { c: 0, cs: 1, 'c#': 1, df: 1, db: 1, d: 2, ds: 3, 'd#': 3, ef: 3, eb: 3, e: 4, f: 5, fs: 6, 'f#': 6, gf: 6, gb: 6, g: 7, gs: 8, 'g#': 8, af: 8, ab: 8, a: 9, as: 10, 'a#': 10, bf: 10, bb: 10, b: 11 };
+const CHORD_INTERVALS = {
+  maj: [0, 4, 7], major: [0, 4, 7], min: [0, 3, 7], minor: [0, 3, 7], m: [0, 3, 7],
+  dim: [0, 3, 6], aug: [0, 4, 8], sus2: [0, 2, 7], sus4: [0, 5, 7],
+  '5': [0, 7], '6': [0, 4, 7, 9], min6: [0, 3, 7, 9], m6: [0, 3, 7, 9],
+  '7': [0, 4, 7, 10], dom7: [0, 4, 7, 10], maj7: [0, 4, 7, 11],
+  min7: [0, 3, 7, 10], m7: [0, 3, 7, 10], dim7: [0, 3, 6, 9],
+  m7b5: [0, 3, 6, 10], min7b5: [0, 3, 6, 10],
+  '9': [0, 4, 7, 10, 14], maj9: [0, 4, 7, 11, 14], min9: [0, 3, 7, 10, 14], m9: [0, 3, 7, 10, 14],
+  add9: [0, 4, 7, 14]
+};
+const SCALE_INTERVALS = {
+  major: [0, 2, 4, 5, 7, 9, 11], ionian: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10], aeolian: [0, 2, 3, 5, 7, 8, 10],
+  dorian: [0, 2, 3, 5, 7, 9, 10], phrygian: [0, 1, 3, 5, 7, 8, 10],
+  lydian: [0, 2, 4, 6, 7, 9, 11], mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  locrian: [0, 1, 3, 5, 6, 8, 10], chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  pentatonic: [0, 2, 4, 7, 9], minorPentatonic: [0, 3, 5, 7, 10],
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11], melodicMinor: [0, 2, 3, 5, 7, 9, 11],
+  wholeTone: [0, 2, 4, 6, 8, 10]
+};
 
 function midiNumberToPitchInfo(number) {
   const rounded = Math.round(number);
@@ -1497,16 +2116,95 @@ function midiNumberToPitchInfo(number) {
   return { pname, acc, oct, rest: false };
 }
 
+function pitchNameToMidi(name, defaultOct = 5) {
+  const m = String(name).toLowerCase().match(/^([a-g])(s|f|#|b)?(\d+)?$/);
+  if (!m) return null;
+  const pc = PITCH_CLASS_TO_SEMITONE[m[1] + (m[2] || '')];
+  if (pc === undefined) return null;
+  const oct = m[3] ? parseInt(m[3]) : defaultOct;
+  // Tidal's c5 is middle C, so its text octave maps one lower than MIDI's
+  // scientific-octave formula.
+  return oct * 12 + pc;
+}
+
+function parseChord(val) {
+  const parts = String(val).toLowerCase().split("'");
+  if (parts.length < 2) return null;
+  const rootMidi = pitchNameToMidi(parts[0], 5);
+  if (rootMidi === null) return null;
+  const quality = parts[1] || 'maj';
+  let intervals = CHORD_INTERVALS[quality] || null;
+  if (!intervals) return null;
+  intervals = intervals.slice();
+  let open = false, inversion = 0, drop = 0, toneCount = null;
+  for (const mod of parts.slice(2)) {
+    if (mod === 'o') open = true;
+    else if (/^i\d+$/.test(mod)) inversion = parseInt(mod.slice(1));
+    else if (/^d\d+$/.test(mod)) drop = parseInt(mod.slice(1));
+    else if (/^\d+$/.test(mod)) toneCount = parseInt(mod);
+  }
+  if (toneCount && toneCount > intervals.length) {
+    const base = intervals.slice();
+    for (let i = intervals.length; i < toneCount; i++)
+      intervals.push(base[i % base.length] + 12 * Math.floor(i / base.length));
+  }
+  let midis = intervals.map(i => rootMidi + i);
+  for (let i = 0; i < inversion; i++) midis.push(midis.shift() + 12);
+  if (open) midis = midis.map((m, i) => m + (i % 2 === 1 ? 12 : 0)).sort((a, b) => a - b);
+  if (drop > 0 && drop <= midis.length) {
+    const idx = midis.length - drop;
+    midis[idx] -= 12;
+    midis.sort((a, b) => a - b);
+  }
+  return { chord: midis.map(midiNumberToPitchInfo), rest: false };
+}
+
+function degreeToMidi(degree, scaleName = 'major', root = 'c5') {
+  const scale = SCALE_INTERVALS[scaleName] || SCALE_INTERVALS[scaleName.replace(/[-_]/g, '')] || SCALE_INTERVALS.major;
+  const rootMidi = pitchNameToMidi(root, 5) ?? 60;
+  const d = Math.round(Number(degree));
+  const len = scale.length;
+  const oct = Math.floor(d / len);
+  const idx = ((d % len) + len) % len;
+  return rootMidi + scale[idx] + 12 * oct;
+}
+
+function pitchInfoToTidalName(info) {
+  const acc = info.acc === 's' ? '#' : info.acc === 'f' ? 'b' : '';
+  return `${info.pname}${acc}${info.oct + 1}`;
+}
+
+function scaleValues(elements, scaleName, root) {
+  return elements.map(el => {
+    if (el.type === 'leaf' && /^-?\d+(\.\d+)?$/.test(el.value))
+      return { ...el, value: pitchInfoToTidalName(midiNumberToPitchInfo(degreeToMidi(el.value, scaleName, root))) };
+    if (el.children) return { ...el, children: scaleValues(el.children, scaleName, root) };
+    if (el.alternatives) return { ...el, alternatives: scaleValues(el.alternatives, scaleName, root) };
+    if (el.inner) return { ...el, inner: scaleValues([el.inner], scaleName, root)[0] };
+    return el;
+  });
+}
+
 function parseNote(val, pitchInput = 'name') {
   if (val === 'r' || val === '~') return { rest: true };
   if (pitchInput === 'midi' && /^-?\d+(\.\d+)?$/.test(val))
     return midiNumberToPitchInfo(Number(val));
-  const m = val.toLowerCase().match(/^([a-g])([#b]?)(\d+)$/);
+  const chord = parseChord(val);
+  if (chord) return chord;
+  // Tidal note-numbers: note 0 == c5 (middle C, MIDI 60); negatives and
+  // decimals allowed (decimals round to the nearest semitone on a staff).
+  if (/^-?\d+(\.\d+)?$/.test(val))
+    return midiNumberToPitchInfo(Math.round(Number(val)) + 60);
+  // Tidal accidentals are letters: s = sharp, f = flat (cs5, ef5); # and b
+  // accepted as aliases. Octave optional — Tidal's default octave is 5.
+  const m = val.toLowerCase().match(/^([a-g])(s|f|#|b)?(\d+)?$/);
   if (!m) return null;
-  const acc = m[2] === '#' ? 's' : m[2] === 'b' ? 'f' : '';
+  const acc = (m[2] === 's' || m[2] === '#') ? 's'
+            : (m[2] === 'f' || m[2] === 'b') ? 'f' : '';
+  const typedOct = m[3] !== undefined ? parseInt(m[3]) : 5;
   // Tidal's "c5" is middle C = MEI/scientific octave 4, so the staff octave
   // is the typed octave minus 1 — the note is drawn where it actually sounds.
-  return { pname: m[1], acc, oct: parseInt(m[3]) - 1, rest: false };
+  return { pname: m[1], acc, oct: typedOct - 1, rest: false };
 }
 
 function clefMiddlePitch(clef) {
@@ -1633,7 +2331,6 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
       return `<rest xml:id="${id}" dur="${part.dur}"${dotsAttr}/>`;
     }
 
-    partIds.push(id);
     let tieAttr = '';
     if (useParts.length > 1) {
       if (i === 0)                      tieAttr = ' tie="i"';
@@ -1641,6 +2338,17 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
       else                              tieAttr = ' tie="t"';
     }
 
+    if (noteInfo.chord) {
+      const noteXml = noteInfo.chord.map(p => {
+        const nid = `n${noteIdSeq++}`;
+        partIds.push(nid);
+        const accAttr = p.acc ? ` accid="${p.acc}"` : '';
+        return `<note xml:id="${nid}" pname="${p.pname}" oct="${p.oct}"${accAttr}/>`;
+      }).join('');
+      return `<chord xml:id="${id}" dur="${part.dur}"${dotsAttr}${tieAttr}${colorAttr}>${noteXml}</chord>`;
+    }
+
+    partIds.push(id);
     const accAttr = noteInfo.acc ? ` accid="${noteInfo.acc}"` : '';
     const headAttr = noteInfo.head ? ` head.shape="${noteInfo.head}"` : '';
     return `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${part.dur}"${dotsAttr}${accAttr}${tieAttr}${colorAttr}${headAttr}/>`;
@@ -2504,6 +3212,8 @@ let bridgeAutoReconnect = false;
 // Captures: dN, the function-chain text between the first `$` and the
 // pattern function, and the quoted mini-notation.
 const TIDAL_LINE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(?:sound|s|note|n)\s+"([^"]+)"/g;
+const TIDAL_SCALE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(?:note|n)\s+\((scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?\s+"([^"]+)"\)/g;
+const TIDAL_CHOOSE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(?:sound|s|note|n)\s+\((choose|cycleChoose|wchoose)\s+\[([^\]]+)\]\)/g;
 const ALL_LINE_RE = /^\s*all\s*\$\s*(.+)$/m;
 
 // Chain from an `all $ …` line in the source — applies to every line.
@@ -2564,10 +3274,33 @@ function handleBridgeMessage(message) {
     const allM = message.source.match(ALL_LINE_RE);
     allChain = allM ? parseChain(allM[1]) : [];
 
-    TIDAL_LINE_RE.lastIndex = 0;
     let match;
+    const handledExprLines = new Set();
+    TIDAL_SCALE_RE.lastIndex = 0;
+    while ((match = TIDAL_SCALE_RE.exec(message.source))) {
+      const [, line, chainText, , scaleName, degrees] = match;
+      handledExprLines.add(line);
+      applyPatternToLine(line, degrees, {
+        flag: line === message.selectedLine,
+        chain: [...parseChain(chainText), { fn: 'scale', scale: scaleName, root: 'c5', raw: `scale "${scaleName}"` }]
+      });
+    }
+
+    TIDAL_CHOOSE_RE.lastIndex = 0;
+    while ((match = TIDAL_CHOOSE_RE.exec(message.source))) {
+      const [, line, chainText, fn, itemsText] = match;
+      const items = parseChoiceItems(`[${itemsText}]`);
+      handledExprLines.add(line);
+      applyPatternToLine(line, '~', {
+        flag: line === message.selectedLine,
+        chain: [...parseChain(chainText), { fn, items, raw: `${fn} [${itemsText}]` }]
+      });
+    }
+
+    TIDAL_LINE_RE.lastIndex = 0;
     while ((match = TIDAL_LINE_RE.exec(message.source))) {
       const [, line, chainText, pattern] = match;
+      if (handledExprLines.has(line)) continue;
       applyPatternToLine(line, pattern, {
         flag: line === message.selectedLine,
         chain: parseChain(chainText)
