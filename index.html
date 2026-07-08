@@ -2308,10 +2308,12 @@ function buildDrumMap(values) {
 // ─── 4. Pattern tree → MEI XML ───────────────────────────────────────────────
 let noteIdSeq = 1;
 
-// Degraded (?) staff notes of the current render, with their absolute cycle
-// positions — so a real Tidal event arriving at that moment can turn the
-// grey notehead black in place. Rebuilt on every patternsToMEI call.
-let liveProbNotes = [];
+// Orbit-bound staff notes of the current render, with their absolute cycle
+// position and length — so a real Tidal event arriving at that moment can
+// flash the notehead (and, for a degraded `?` note, settle it from grey to
+// black in place). Rebuilt on every patternsToMEI call.
+let liveNotes = [];
+const NOTE_HIGHLIGHT_COLOR = '#ff0000';
 
 // Returns an array of MEI XML strings (multiple = tied notes / split rests),
 // or null if the token can't be rendered in this mode. prob < 1 (degrade `?`)
@@ -2381,10 +2383,11 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
     return `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${part.dur}"${dotsAttr}${accAttr}${tieAttr}${colorAttr}${headAttr}/>`;
   });
 
-  // Register degraded notes for live resolution (grey → black when the real
-  // Tidal event for this exact moment arrives). Only for orbit-bound lines.
-  if (prob < 1 && !noteInfo.rest && meta && meta.orbit !== null && meta.orbit !== undefined) {
-    liveProbNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, done: false });
+  // Register every orbit-bound note for live resolution: when the real
+  // Tidal event for this exact moment arrives, it gets flashed (and, if
+  // degraded, settles from grey to black in place).
+  if (!noteInfo.rest && meta && meta.orbit !== null && meta.orbit !== undefined) {
+    liveNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, dur: meta.dur || 0, prob, done: false });
   }
 
   return xml;
@@ -2410,14 +2413,15 @@ function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIn
   const childScale = isTuplet ? scale.mul(new Fraction(num, numbase)) : scale;
 
   const items = [];
-  let cursor = offset; // absolute position (in cycles) — for live degrade resolution
+  let cursor = offset; // absolute position (in cycles) — for live note resolution
   for (const raw of elements) {
     const elLen = length.mul(new Fraction(raw.weight, totalWeight));
     const { el: resolved, c } = resolveNode(raw, cycleIndex);
     if (resolved.type === 'leaf') {
       const prob = resolved.prob !== undefined ? resolved.prob : 1;
-      const parts = noteOrRestXML(resolved.value, elLen.mul(childScale), mode, fixedPitch, stats, pitchInput, prob,
-        { orbit, begin: cursor.toFloat() });
+      const noteLen = elLen.mul(childScale);
+      const parts = noteOrRestXML(resolved.value, noteLen, mode, fixedPitch, stats, pitchInput, prob,
+        { orbit, begin: cursor.toFloat(), dur: noteLen.toFloat() });
       if (parts) items.push(...parts);
     } else {
       items.push(...buildMEIItems(resolved.children, elLen, childScale, mode, fixedPitch, stats, c, pitchInput, cursor, orbit));
@@ -2479,7 +2483,7 @@ function eventsToElements(events) {
 // makes the notes change as the playback clock advances.
 function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', pitchInput = 'name', startCycle = 0 } = {}) {
   noteIdSeq = 1;
-  liveProbNotes = [];
+  liveNotes = [];
   iterApproximated = 0;
   playedApproximated = 0;
   const parsed = patterns.map(p => {
@@ -2626,34 +2630,6 @@ function approximatedSuffix(stats) {
   return parts.length ? ' · ' + parts.join(' · ') : '';
 }
 
-// Red playhead line injected into the Verovio SVG, animated during Play.
-// Verovio nests the actual viewBox-bearing SVG one level inside the outer
-// page wrapper (<svg width/height> > <svg class="definition-scale" viewBox>
-// > <g class="page-margin">) — the outer element itself has no viewBox, so
-// the line must live in, and be measured against, the inner one.
-function playheadSvg(svgEl) {
-  return svgEl.querySelector('svg') || svgEl;
-}
-
-function injectPlayhead(svgEl) {
-  const inner = playheadSvg(svgEl);
-  let ph = inner.querySelector('#score-playhead');
-  if (!ph) {
-    ph = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    ph.id = 'score-playhead';
-    ph.setAttribute('stroke', '#a32828');
-    ph.setAttribute('stroke-width', '10');
-    ph.setAttribute('stroke-opacity', '0.5');
-    ph.setAttribute('stroke-linecap', 'round');
-    inner.appendChild(ph);
-  }
-  const vb = inner.viewBox.baseVal;
-  ph.setAttribute('y1', String(vb.y));
-  ph.setAttribute('y2', String(vb.y + vb.height));
-  ph.setAttribute('x1', String(vb.x));
-  ph.setAttribute('x2', String(vb.x));
-}
-
 // ── Clock model ──────────────────────────────────────────────────────────────
 // Two clock sources: Tidal's real OSC clock (via the bridge, whenever a live
 // session is playing) and the internal Play timer. The remote clock always
@@ -2714,14 +2690,6 @@ function masterLoop() {
     `conic-gradient(var(--accent) ${pct}%, var(--pulse-rest) ${pct}%)`;
   document.getElementById('cyclePulseNum').textContent = Math.floor(cf);
 
-  const svgEl = document.querySelector('#scoreArea svg');
-  const innerSvg = svgEl && playheadSvg(svgEl);
-  const ph = innerSvg && innerSvg.querySelector('#score-playhead');
-  if (ph && running) {
-    const vb = innerSvg.viewBox.baseVal;
-    const x = vb.x + vb.width * windowPhase;
-    ph.setAttribute('x1', String(x)); ph.setAttribute('x2', String(x));
-  }
 
   document.querySelectorAll('.graphic-playhead').forEach(el => {
     el.style.left = `${(windowPhase * 100).toFixed(2)}%`;
@@ -2748,7 +2716,6 @@ function renderToScoreArea(mei) {
     svgEl.style.filter = '';
     svgEl.style.maxWidth = '100%';
     svgEl.style.height = 'auto';
-    injectPlayhead(svgEl);
   }
 }
 
@@ -2949,7 +2916,7 @@ function renderLivePattern() {
     renderToScoreArea(mei);
     renderTimeline(patterns, cycles, playback.cycleIndex);
     scheduleGraphicRender();
-    sweepProbNotes();
+    sweepLiveNotes();
 
     const labels = patterns.map(p => p.label).join(', ');
     updateCycleUI(labels);
@@ -3056,19 +3023,36 @@ function tidalEventValue(ev) {
   return '?';
 }
 
-// A real event arrived at this exact moment/orbit → its degraded staff note
-// actually played this cycle: turn the grey notehead(s) black in place.
-function resolveProbNotes(orbit, cycleFloat) {
-  for (const pn of liveProbNotes) {
-    if (pn.done || pn.orbit !== orbit) continue;
-    if (Math.abs(cycleFloat - pn.begin) < 0.02) {
-      pn.done = true;
-      for (const id of pn.ids) {
-        // Verovio translates MEI @color into an SVG fill on the note group —
-        // override that fill to blacken the glyph without re-rendering.
-        const g = document.querySelector(`#scoreArea svg [id="${id}"]`);
-        if (g) { g.setAttribute('fill', '#000000'); g.style.fill = '#000000'; }
-      }
+// Verovio translates MEI @color into an SVG fill on the note group — this
+// overrides that fill directly, without a re-render, so it can track
+// playback in real time. Stems/ties render via `stroke: currentColor` (not
+// fill), so both @color and @fill must be set — same pair Verovio itself
+// writes on the note group when the MEI carries a static @color.
+function paintNote(id, color) {
+  const g = document.querySelector(`#scoreArea svg [id="${id}"]`);
+  if (g) {
+    g.setAttribute('fill', color); g.style.fill = color;
+    g.setAttribute('color', color); g.style.color = color;
+  }
+  else console.warn('[note-highlight] no SVG element found for id', id);
+}
+
+// A real event arrived at this exact moment/orbit → flash its staff note(s)
+// so a performer can follow the highlight instead of guessing where they
+// are in the score. Settles back to black after the note's own duration —
+// which for a degraded (?) note also doubles as "this one actually played".
+function highlightNote(ln) {
+  for (const id of ln.ids) paintNote(id, NOTE_HIGHLIGHT_COLOR);
+  const ms = Math.max(60, ln.dur * getCycleMs());
+  setTimeout(() => { for (const id of ln.ids) paintNote(id, '#000000'); }, ms);
+}
+
+function resolveLiveNotes(orbit, cycleFloat) {
+  for (const ln of liveNotes) {
+    if (ln.done || ln.orbit !== orbit) continue;
+    if (Math.abs(cycleFloat - ln.begin) < 0.02) {
+      ln.done = true;
+      highlightNote(ln);
     }
   }
 }
@@ -3076,10 +3060,10 @@ function resolveProbNotes(orbit, cycleFloat) {
 // After a fresh render, re-check events that already arrived for the
 // displayed cycles (an event can beat the cycle-boundary re-render by a
 // few milliseconds and would otherwise be missed).
-function sweepProbNotes() {
-  if (!liveProbNotes.length) return;
+function sweepLiveNotes() {
+  if (!liveNotes.length) return;
   for (const [ci, evs] of liveEvents.byCycle) {
-    for (const ev of evs) resolveProbNotes(ev.orbit, ci + ev.begin);
+    for (const ev of evs) resolveLiveNotes(ev.orbit, ci + ev.begin);
   }
 }
 
@@ -3102,7 +3086,7 @@ function recordTidalEvent(ev) {
     begin: cycleFloat - ci,
     dur: Math.max(durCycles, 0.005)
   });
-  resolveProbNotes(orbitNum, cycleFloat);
+  resolveLiveNotes(orbitNum, cycleFloat);
   if (document.getElementById('staffSourceOpt').value === 'played') schedulePlayedStaff();
 
   for (const key of liveEvents.byCycle.keys())
