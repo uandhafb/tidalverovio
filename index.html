@@ -2357,6 +2357,7 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
     const dotsAttr = part.dots ? ` dots="${part.dots}"` : '';
 
     if (noteInfo.rest) {
+      partIds.push(id);
       return `<rest xml:id="${id}" dur="${part.dur}"${dotsAttr}/>`;
     }
 
@@ -2383,11 +2384,13 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
     return `<note xml:id="${id}" pname="${noteInfo.pname}" oct="${noteInfo.oct}" dur="${part.dur}"${dotsAttr}${accAttr}${tieAttr}${colorAttr}${headAttr}/>`;
   });
 
-  // Register every orbit-bound note for live resolution: when the real
-  // Tidal event for this exact moment arrives, it gets flashed (and, if
-  // degraded, settles from grey to black in place).
-  if (!noteInfo.rest && meta && meta.orbit !== null && meta.orbit !== undefined) {
-    liveNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, dur: meta.dur || 0, prob, done: false });
+  // Register every orbit-bound note (and rest) for live resolution. Notes
+  // flash when the real Tidal event for this exact moment arrives (and, if
+  // degraded, settle from grey to black in place). Rests never get a real
+  // event — Tidal emits nothing for silence — so they're instead resolved
+  // by the clock itself, in resolveRests.
+  if (meta && meta.orbit !== null && meta.orbit !== undefined) {
+    liveNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, dur: meta.dur || 0, prob, rest: noteInfo.rest, done: false });
   }
 
   return xml;
@@ -2663,6 +2666,7 @@ let wasClockLive = false;
 function masterLoop() {
   const cf = currentCycleFloat();
   const live = clockIsLive();
+  const numCycles = parseInt(document.getElementById('cyclesOpt').value);
 
   // Live→internal transition (Tidal stopped): re-render once so the graphic
   // falls back from "what played" to the typed patterns view.
@@ -2676,14 +2680,21 @@ function masterLoop() {
     if (ci !== playback.cycleIndex && ci >= 0) {
       playback.cycleIndex = ci;
       flashPulse();
-      renderCurrent();
+      // Keep the same page of measures on screen — notes are highlighted
+      // in place as they play — and only pull in a fresh page once the
+      // last displayed measure has been reached.
+      if (ci >= playback.windowStart + numCycles) {
+        playback.windowStart = ci;
+        renderCurrent();
+      }
     }
   }
 
-  const numCycles = parseInt(document.getElementById('cyclesOpt').value);
   const windowPhase = Math.min(1, Math.max(0, (cf - playback.cycleIndex) / numCycles));
   const cyclePhase = cf - Math.floor(cf);
   const running = live || playback.playing;
+
+  if (running) resolveRests(cf);
 
   const pct = (running ? cyclePhase * 100 : 0).toFixed(1);
   document.getElementById('cyclePulse').style.background =
@@ -2720,7 +2731,10 @@ function renderToScoreArea(mei) {
 }
 
 // ─── 6. Playback clock ────────────────────────────────────────────────────────
-const playback = { playing: false, cycleIndex: 0, timer: null, currentCycleStart: 0, rafId: null };
+// windowStart: the cycle the currently-displayed page of measures begins
+// at. Stays fixed while cycleIndex advances within the page — only jumps
+// (triggering a fresh render) once playback reaches the end of the page.
+const playback = { playing: false, cycleIndex: 0, windowStart: 0, timer: null, currentCycleStart: 0, rafId: null };
 
 function getCps()     { return Math.max(0.001, parseFloat(document.getElementById('cpsInput').value) || 0.5625); }
 function getCycleMs() { return 1000 / getCps(); }
@@ -2767,7 +2781,12 @@ function playStart() {
     playback.cycleIndex++;
     playback.currentCycleStart = Date.now();
     flashPulse();
-    renderCurrent();
+    // Same page-until-the-last-measure behavior as the live clock path.
+    const numCycles = parseInt(document.getElementById('cyclesOpt').value);
+    if (playback.cycleIndex >= playback.windowStart + numCycles) {
+      playback.windowStart = playback.cycleIndex;
+      renderCurrent();
+    }
   }, getCycleMs());
   setPlayBtnState(true);
 }
@@ -2781,13 +2800,17 @@ function playStop() {
 
 function playSync() {
   playback.cycleIndex = 0;
+  playback.windowStart = 0;
   const was = playback.playing;
   if (was) { playStop(); playStart(); }
   else renderCurrent();
 }
 
+// Manual step (< / > buttons): jumps straight to a new page starting at
+// the target cycle, unlike the automatic live/Play advance.
 function stepCycle(delta) {
   playback.cycleIndex = Math.max(0, playback.cycleIndex + delta);
+  playback.windowStart = playback.cycleIndex;
   renderCurrent();
 }
 
@@ -2804,7 +2827,7 @@ function renderPattern() {
   if (!patInput)   { statusEl.textContent = 'Please enter a pattern'; statusEl.className = 'render-status err'; return; }
 
   try {
-    const events = evalPattern(patInput, cycles, playback.cycleIndex);
+    const events = evalPattern(patInput, cycles, playback.windowStart);
     const grid = document.getElementById('eventsGrid');
     grid.innerHTML = '';
     events.forEach(ev => {
@@ -2816,10 +2839,10 @@ function renderPattern() {
     document.getElementById('eventDetails').style.display = '';
     document.getElementById('meiDetails').style.display = '';
 
-    const { mei, stats } = patternToMEI(patInput, cycles, { clef, mode, pitchInput, startCycle: playback.cycleIndex });
+    const { mei, stats } = patternToMEI(patInput, cycles, { clef, mode, pitchInput, startCycle: playback.windowStart });
     document.getElementById('meiPre').textContent = mei;
     renderToScoreArea(mei);
-    renderTimeline([{ label: null, src: patInput }], cycles, playback.cycleIndex);
+    renderTimeline([{ label: null, src: patInput }], cycles, playback.windowStart);
     scheduleGraphicRender();
     updateCycleUI(null);
     document.getElementById('patternLabel').textContent = patInput;
@@ -2879,12 +2902,12 @@ function renderLivePattern() {
   // (chunk, sometimes, chop...) becomes notation, grid-quantized.
   if (document.getElementById('staffSourceOpt').value === 'played') {
     const orbits = new Set();
-    for (let ci = playback.cycleIndex; ci < playback.cycleIndex + cycles; ci++)
+    for (let ci = playback.windowStart; ci < playback.windowStart + cycles; ci++)
       for (const ev of (liveEvents.byCycle.get(ci) || [])) orbits.add(ev.orbit);
     if (orbits.size === 0) {
       statusEl.textContent = 'Played staff: waiting for Tidal events…';
       statusEl.className = 'render-status';
-      renderTimeline(getFlaggedLines(), cycles, playback.cycleIndex);
+      renderTimeline(getFlaggedLines(), cycles, playback.windowStart);
       scheduleGraphicRender();
       return;
     }
@@ -2901,7 +2924,7 @@ function renderLivePattern() {
     document.getElementById('scoreArea').innerHTML = '<div class="placeholder"><span class="big">𝄞</span>Flag a line to send it to the score</div>';
     document.getElementById('eventDetails').style.display = 'none';
     document.getElementById('meiDetails').style.display = 'none';
-    renderTimeline([], cycles, playback.cycleIndex);
+    renderTimeline([], cycles, playback.windowStart);
     return;
   }
 
@@ -2909,12 +2932,12 @@ function renderLivePattern() {
     const inferred = inferLiveRenderOptions(patterns, mode, pitchInput);
     mode = inferred.mode;
     pitchInput = inferred.pitchInput;
-    const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle: playback.cycleIndex });
+    const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle: playback.windowStart });
     document.getElementById('meiPre').textContent = mei;
     document.getElementById('meiDetails').style.display = '';
     document.getElementById('eventDetails').style.display = 'none';
     renderToScoreArea(mei);
-    renderTimeline(patterns, cycles, playback.cycleIndex);
+    renderTimeline(patterns, cycles, playback.windowStart);
     scheduleGraphicRender();
     sweepLiveNotes();
 
@@ -3049,8 +3072,21 @@ function highlightNote(ln) {
 
 function resolveLiveNotes(orbit, cycleFloat) {
   for (const ln of liveNotes) {
-    if (ln.done || ln.orbit !== orbit) continue;
+    if (ln.done || ln.rest || ln.orbit !== orbit) continue;
     if (Math.abs(cycleFloat - ln.begin) < 0.02) {
+      ln.done = true;
+      highlightNote(ln);
+    }
+  }
+}
+
+// Rests never get a real Tidal event — silence produces no OSC message —
+// so they're resolved by the clock reaching their position instead of by
+// a matching event. Called every animation frame while playback runs.
+function resolveRests(cf) {
+  for (const ln of liveNotes) {
+    if (ln.done || !ln.rest) continue;
+    if (cf >= ln.begin) {
       ln.done = true;
       highlightNote(ln);
     }
@@ -3641,6 +3677,7 @@ document.getElementById('nextCycle').addEventListener('click', () => stepCycle(1
 document.getElementById('cycleIndex').addEventListener('change', () => {
   const v = Math.max(0, parseInt(document.getElementById('cycleIndex').value) || 0);
   playback.cycleIndex = v;
+  playback.windowStart = v;
   renderCurrent();
 });
 document.getElementById('cpsInput').addEventListener('input', () => {
