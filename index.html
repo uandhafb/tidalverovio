@@ -607,6 +607,10 @@
           <input id="cpsInput" type="number" min="0.001" step="0.0001" value="0.5625">
         </label>
         <label class="field">
+          BPM
+          <input id="bpmInput" type="number" min="1" step="0.1" value="135">
+        </label>
+        <label class="field">
           Cycle length
           <input id="cycleLength" type="text" value="1.778 s" readonly>
         </label>
@@ -1415,7 +1419,8 @@ function parseChainSegment(seg) {
   }
 
   if (head === 'arp' || head === 'arpg' || head === 'arpeggiate') {
-    return { fn: 'arp', mode: rest[0] || 'up', raw: seg.trim() };
+    // Tidal writes the mode quoted (arp "down") — strip the quotes.
+    return { fn: 'arp', mode: (rest[0] || 'up').replace(/"/g, ''), raw: seg.trim() };
   }
 
   if (head === 'rolled' || head === 'rolledBy') {
@@ -2719,10 +2724,22 @@ function masterLoop() {
   const numCycles = parseInt(document.getElementById('cyclesOpt').value);
 
   // Live→internal transition (Tidal stopped): re-render once so the graphic
-  // falls back from "what played" to the typed patterns view.
+  // falls back from "what played" to the typed patterns view. Play/Stop only
+  // drive the internal clock, so while Tidal's clock is live they're greyed
+  // out instead of silently doing nothing.
   if (wasClockLive !== live) {
     wasClockLive = live;
-    if (!live) renderCurrent();
+    const playBtn = document.getElementById('playBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    if (live) {
+      playBtn.disabled = true;
+      stopBtn.disabled = true;
+      playBtn.title = stopBtn.title = "Tidal's clock is driving — controls resume when Tidal stops";
+    } else {
+      playBtn.title = stopBtn.title = '';
+      setPlayBtnState(playback.playing);
+      renderCurrent();
+    }
   }
 
   if (live) {
@@ -2789,8 +2806,13 @@ const playback = { playing: false, cycleIndex: 0, windowStart: 0, timer: null, c
 function getCps()     { return Math.max(0.001, parseFloat(document.getElementById('cpsInput').value) || 0.5625); }
 function getCycleMs() { return 1000 / getCps(); }
 
+// Tidal's setbpm assumes 4 beats per cycle: cps = bpm / 60 / 4.
+const BEATS_PER_CYCLE = 4;
+
 function updateCpsDisplay() {
   document.getElementById('cycleLength').value = `${(getCycleMs() / 1000).toFixed(3)} s`;
+  const bpmEl = document.getElementById('bpmInput');
+  if (document.activeElement !== bpmEl) bpmEl.value = (getCps() * 60 * BEATS_PER_CYCLE).toFixed(1);
 }
 
 // Keeps the cycle number input and score title in sync with playback.
@@ -3567,18 +3589,29 @@ function handleBridgeMessage(message) {
 
   if (message.type === 'source-update' && typeof message.source === 'string') {
     const activeSource = stripTidalComments(message.source);
-    // Matches both `setcps (135/60/4)` and bare `setcps 0.55`
+    // Matches both `setcps (135/60/4)` and bare `setcps 0.55`; `setbpm 120`
+    // is converted through Tidal's 4-beats-per-cycle convention.
     const cpsM = activeSource.match(/setcps\s*\(([^)]+)\)/) ||
                  activeSource.match(/setcps\s+([0-9.]+(?:\s*\/\s*[0-9.]+)*)/);
+    const bpmM = activeSource.match(/setbpm\s*\(([^)]+)\)/) ||
+                 activeSource.match(/setbpm\s+([0-9.]+(?:\s*\/\s*[0-9.]+)*)/);
+    let liveCps = null;
     if (cpsM) {
       try {
         const v = Function('"use strict"; return (' + cpsM[1] + ')')();
-        if (Number.isFinite(v) && v > 0) {
-          document.getElementById('cpsInput').value = v.toFixed(4);
-          updateCpsDisplay();
-          if (playback.playing) { playStop(); playStart(); }
-        }
+        if (Number.isFinite(v) && v > 0) liveCps = v;
       } catch {}
+    }
+    if (liveCps === null && bpmM) {
+      try {
+        const v = Function('"use strict"; return (' + bpmM[1] + ')')();
+        if (Number.isFinite(v) && v > 0) liveCps = v / 60 / BEATS_PER_CYCLE;
+      } catch {}
+    }
+    if (liveCps !== null) {
+      document.getElementById('cpsInput').value = liveCps.toFixed(4);
+      updateCpsDisplay();
+      if (playback.playing) { playStop(); playStart(); }
     }
     markBridgeUpdate();
 
@@ -3740,6 +3773,13 @@ document.getElementById('cycleIndex').addEventListener('change', () => {
   renderCurrent();
 });
 document.getElementById('cpsInput').addEventListener('input', () => {
+  updateCpsDisplay();
+  if (playback.playing) { playStop(); playStart(); }
+});
+document.getElementById('bpmInput').addEventListener('input', () => {
+  const bpm = parseFloat(document.getElementById('bpmInput').value);
+  if (!Number.isFinite(bpm) || bpm <= 0) return;
+  document.getElementById('cpsInput').value = (bpm / 60 / BEATS_PER_CYCLE).toFixed(4);
   updateCpsDisplay();
   if (playback.playing) { playStop(); playStart(); }
 });
