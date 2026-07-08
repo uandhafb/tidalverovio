@@ -101,6 +101,16 @@ Then open **http://localhost:8000/index.html**. Stop the server with `Ctrl+C`. (
 
 6. **For true cycle sync and the live Graphic Score**, boot Tidal with this project's `BootTidal.hs` (a copy of the Pulsar package's boot file plus a score OSC target on udp 6011): in Pulsar, set Settings → Packages → tidalcycles → *Boot Tidal Path* to the absolute path of `tidalverovio/BootTidal.hs`, then boot Tidal as usual. Sound is unaffected. Without this step the text pipeline (typing → staff) still works, but the cycle ring/playhead run on the internal clock instead of Tidal's real one and the Graphic Score only shows typed patterns, not actual playback.
 
+### Extra REPL helpers in `BootTidal.hs`
+
+Beyond the stock Pulsar `tidalcycles` boot file, this project's `BootTidal.hs` also defines the TidalCycles ≥ 1.10.1 helpers:
+
+- `setbpm <n>` / `getbpm` — set/read tempo in BPM, an alternative to `setcps`/`getcps`.
+- `enableLink` / `disableLink` — turn Ableton Link sync on/off.
+- `_d1` … `_d16` — force-mute one orbit: `_d1 $ <anything>` silences orbit 1 only (the pattern argument is ignored), unlike `hush`, which silences everything.
+
+These need TidalCycles ≥ 1.10.1 — on older installs they'll fail at boot with an "unknown identifier" error. If you're on an older Tidal, remove the corresponding lines from `BootTidal.hs` (everything else in this file works back to 1.9).
+
 ## What it does
 
 - **Parses mini-notation** into a rhythm tree using exact fraction math — no floating-point rounding.
@@ -200,4 +210,5 @@ This project was compared against a sibling project (`Tidal_VexFlow_Teste`) that
 - `index.html` — the entire app: parser, MEI generator, Verovio renderer, playback clock, timeline, bridge client, live-lines panel.
 - `tidal-score-bridge.js` — local HTTP+WebSocket(+OSC) relay between Pulsar and the browser.
 - `pulsar-tidal-score-forwarder/` — Pulsar IDE package that POSTs `.tidal` buffer text to the bridge.
+- `BootTidal.hs` — Pulsar `tidalcycles` boot file, extended with the score OSC target and the 1.10.1 REPL helpers (see [Running it live](#running-it-live-from-pulsartidalcycles)).
 - `just-verovio.html` — minimal Verovio smoke test, unrelated to the parser.
