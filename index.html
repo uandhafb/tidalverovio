@@ -2627,8 +2627,17 @@ function approximatedSuffix(stats) {
 }
 
 // Red playhead line injected into the Verovio SVG, animated during Play.
+// Verovio nests the actual viewBox-bearing SVG one level inside the outer
+// page wrapper (<svg width/height> > <svg class="definition-scale" viewBox>
+// > <g class="page-margin">) — the outer element itself has no viewBox, so
+// the line must live in, and be measured against, the inner one.
+function playheadSvg(svgEl) {
+  return svgEl.querySelector('svg') || svgEl;
+}
+
 function injectPlayhead(svgEl) {
-  let ph = svgEl.querySelector('#score-playhead');
+  const inner = playheadSvg(svgEl);
+  let ph = inner.querySelector('#score-playhead');
   if (!ph) {
     ph = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     ph.id = 'score-playhead';
@@ -2636,9 +2645,9 @@ function injectPlayhead(svgEl) {
     ph.setAttribute('stroke-width', '10');
     ph.setAttribute('stroke-opacity', '0.5');
     ph.setAttribute('stroke-linecap', 'round');
-    svgEl.appendChild(ph);
+    inner.appendChild(ph);
   }
-  const vb = svgEl.viewBox.baseVal;
+  const vb = inner.viewBox.baseVal;
   ph.setAttribute('y1', String(vb.y));
   ph.setAttribute('y2', String(vb.y + vb.height));
   ph.setAttribute('x1', String(vb.x));
@@ -2706,9 +2715,10 @@ function masterLoop() {
   document.getElementById('cyclePulseNum').textContent = Math.floor(cf);
 
   const svgEl = document.querySelector('#scoreArea svg');
-  const ph = svgEl && svgEl.querySelector('#score-playhead');
+  const innerSvg = svgEl && playheadSvg(svgEl);
+  const ph = innerSvg && innerSvg.querySelector('#score-playhead');
   if (ph && running) {
-    const vb = svgEl.viewBox.baseVal;
+    const vb = innerSvg.viewBox.baseVal;
     const x = vb.x + vb.width * windowPhase;
     ph.setAttribute('x1', String(x)); ph.setAttribute('x2', String(x));
   }
