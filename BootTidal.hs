@@ -40,7 +40,13 @@ let only = (hush >>)
     setCycle = streamSetCycle tidal
     setcps = asap . cps
     getcps = streamGetcps tidal
+    setbpm = streamSetBPM tidal
+    getbpm = streamGetBPM tidal
     getnow = streamGetnow tidal
+    enableLink = streamEnableLink tidal
+    disableLink = streamDisableLink tidal
+    _p k _ = streamReplace tidal k silence
+    p_ = _p
     xfade i = transition tidal True (Sound.Tidal.Transition.xfadeIn 4) i
     xfadeIn i t = transition tidal True (Sound.Tidal.Transition.xfadeIn t) i
     histpan i t = transition tidal True (Sound.Tidal.Transition.histpan t) i
@@ -75,6 +81,22 @@ let only = (hush >>)
     d14 = p 14 . (|< orbit 13)
     d15 = p 15 . (|< orbit 14)
     d16 = p 16 . (|< orbit 15)
+    _d1 = _p 1
+    _d2 = _p 2
+    _d3 = _p 3
+    _d4 = _p 4
+    _d5 = _p 5
+    _d6 = _p 6
+    _d7 = _p 7
+    _d8 = _p 8
+    _d9 = _p 9
+    _d10 = _p 10
+    _d11 = _p 11
+    _d12 = _p 12
+    _d13 = _p 13
+    _d14 = _p 14
+    _d15 = _p 15
+    _d16 = _p 16
 :}
 
 :{
