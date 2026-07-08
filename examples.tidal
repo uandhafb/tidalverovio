@@ -1,67 +1,42 @@
 -- ═══════════════════════════════════════════════════════════════════
 -- TIDAL → SCORE · demo script
--- Evaluate line by line with Cmd+Enter, top to bottom.
 -- Browser: http://127.0.0.1:8766/index.html  (Connect bridge, green dot)
--- Suggested page settings: Mode = Rhythm, Score view = Both, Cycles = 1
 -- ═══════════════════════════════════════════════════════════════════
 
-setcps 0.5625
+setcps 0.3
+--or
+setbpm 120
 
--- 1 ── BASIC BEAT: the pipeline. Typing alone fills the d1 row; @score
---      flags it. Cycle ring pulses with the audio, playhead sweeps.
--- @score
-d1 $ s "bd sn hh hh"
+-- 1 ──  Harmony & Melody
+-- NOTES - letters, numbers and MIDI 
 
--- 2 ── EUCLIDEAN RHYTHM: bd(3,8) — 3 hits spread over 8 steps
-d1 $ s "bd(3,8) sn"
+--d1 $ note "c4@3 [b4*4 b5!3] <d3 g4> a2/2" # s "superpiano"
+--d2 $ n "c5 d6 c4 c6" # s "superpiano"
+--d4 $ n "-2 0 1 2 3 4" # sound "superpiano"
+--d6 $ note "c a f e" # sound "superpiano"
+|+ note 24
+|+ note "<0 2 7 12>"
+--d7 $ n ("c a f e" |+ 24 |+ "<0 2 7 12>") # sound "superpiano"
+--d8 $ note "c a f e" # sound "superpiano"  # octave "<4 6 3>"
 
--- 3 ── DRUM-KIT NOTATION: three instruments, three staff positions,
---      x-heads for the hats (legend in the status line)
-d1 $ s "bd sn [hh hh hh] sn"
---      ↑ the [hh hh hh] also shows a real TRIPLET bracket
+--CHORDS
+--d1 $ n "'maj" # sound "supermandolin"
+--d2 $  note "[c5, d1], [c2 g7] " # s "superpiano"
+--d3 $  note "[[c4, c5],[c2, f]] " # s "superpiano"
+--d4 $  note "[c5, d1], [c2 g7], [e f] " # s "superpiano"
+--d5 $ note "c'sevenFlat9 a'm9sharp5" # sound "flick"
+--d6 $ n "c'maj'4" # s "superpiano"
+--d7 $ n "c'maj e'maj" # sound "superpiano"
+--d8 $ n "<g'maj b'maj c'maj c'min>" # s "supermandolin"
+--d9 $ n "c'min9'8" # sound "superpiano"
+--d10 $ n "c'min9'd4" # sound "superpiano"
+--d11 $ n "c'min7'i2" # sound "superpiano"
 
--- 4 ── TWO VOICES, ONE STAFF: parallel drum lines (kick low, hats top)
-d1 $ s "[bd(2,8), hh(5,8)]"
+--SCALES
+--d1 $ note (scale "ritusen" "0 .. 7") # sound "superpiano"
+--d2 $ n (scale "ritusen" "0 .. 7") # sound "superpiano"
+--d3 $ n (scale "prometheus" "0..7") # sound "superpiano"
+--d4 $ n (scale "major" "7 .. 0") # sound "superpiano"
 
--- 5 ── POLYMETER: the 3-step line rotates against the 4-step line
---      (watch it shift every cycle)
-d1 $ s "{bd bd bd bd, cp cp hh}"
-
--- 6 ── PITCH MODE: switch page Mode to Pitch for these.
---      Tuplet + tie correctness (the hard notation problems):
-d2 $ note "c5@3 [b5*4 b6!3] <d4 g5> a3/2" # sound "superpiano"
---      ↑ 3:2 tuplet over the measure; b5*4 exactly 4× faster than b6!3
-
--- 7 ── JUX: mirror voices — stems-up forward, stems-down reversed
-d2 $ jux rev $ note "c5 d5 e5 g5" # sound "superpiano"
-
--- 8 ── EVERY: the mirror appears only on even cycles — the score
---      changes per cycle, in sync with what you hear
-d2 $ every 2 (jux rev) $ note "c5 d5 e5 g5" # sound "superpiano"
-
--- 9 ── DEGRADE, LIVE: grey noteheads; darker = more likely to sound
---      (?0.1 = 10% chance of being dropped, ?0.7 = 70% dropped).
---      Watch them turn BLACK the instant they actually play —
---      different every cycle. (Mode = Rhythm again)
-d1 $ s "bd?0.1 sn? hh?0.7 cp?"
-
--- 10 ─ EVERYTHING AT ONCE: multiple lines, multiple staves.
---      Flag d1+d2+d3 in the browser (or evaluate each once).
-d1 $ s "bd(3,8) sn"
-d2 $ note "c5 e5 g5" # sound "superpiano"
-d3 $ s "hh*8"
-
--- 11 ─ UNTRANSLATABLE FUNCTIONS, HONESTLY: chunk gets a grey badge on
---      the staff (typed source shows the base pattern) — but switch
---      "Staff source" to "Played (live)" and the staff notates the
---      REAL chunked rhythm as it sounds. Graphic score agrees.
-d1 $ chunk 4 (hurry 2) $ s "bd sn [~ bd] sn"
-
--- 12 ─ TEMPO IS DYNAMIC: evaluate, watch ring + playhead speed up
-setcps 0.7
-
--- 13 ─ FINALE: click 🎭 Performer (bottom-right) + ◐ Dark —
---      fullscreen stage view. Esc to exit.
-
--- panic button:
-hush
+--ARPEGGIOS
+--
