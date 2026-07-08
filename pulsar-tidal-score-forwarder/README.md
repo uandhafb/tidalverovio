@@ -1,6 +1,6 @@
 # Tidal Score Forwarder
 
-Local Pulsar package for sending TidalCycles source text to the Tidal VexFlow score bridge.
+Local Pulsar package for sending TidalCycles source text to the tidalverovio score bridge.
 
 ## Commands
 
@@ -47,7 +47,7 @@ node tidal-score-bridge.js
 Then open the performer page:
 
 ```txt
-http://127.0.0.1:8766/vexflowD.html
+http://127.0.0.1:8766/index.html
 ```
 
 Click `Connect bridge`.

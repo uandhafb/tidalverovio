@@ -2,8 +2,8 @@
   "name": "tidal-verovio-forwarder",
   "main": "./lib/main",
   "version": "0.1.0",
-  "description": "Forward flagged TidalCycles score lines from Pulsar to the Tidal VexFlow performer bridge.",
-  "repository": "https://github.com/uandha/tidal-vexflow-teste",
+  "description": "Forward flagged TidalCycles score lines from Pulsar to the tidalverovio performer bridge.",
+  "repository": "https://github.com/uandhafb/tidalverovio",
   "license": "MIT",
   "engines": {
     "atom": ">=1.0.0 <2.0.0"
