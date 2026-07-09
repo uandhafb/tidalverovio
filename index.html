@@ -1654,43 +1654,47 @@ function normalizeArpMode(mode) {
   return String(mode || 'up').replace(/^["']|["']$/g, '').toLowerCase();
 }
 
+// The 13 arpeggio modes, following Sound.Tidal.Arp's definitions exactly:
+//   updown       = init x ++ init (reverse x)
+//   up&down      = x ++ reverse x
+//   converge     = x0 : converge (reverse rest)
+//   diverge      = reverse (converge x)
+//   disconverge  = converge x ++ tail (reverse (converge x))
+//   pinkyup      = concatMap (\v -> [v, last x]) (init x)
+//   thumbup      = concatMap (\v -> [head x, v]) (tail x)
+//   *updown pairs of the above = init a ++ init (reverse a)
 function orderedArpValues(values, mode) {
   const m = normalizeArpMode(mode);
-  if (m === 'down') return values.slice().reverse();
-  if (m === 'updown') return [...values, ...values.slice(1, -1).reverse()];
-  if (m === 'downup') {
-    const down = values.slice().reverse();
-    return [...down, ...down.slice(1, -1).reverse()];
-  }
-  if (m === 'up&down') return [...values, ...values.slice().reverse()];
-  if (m === 'down&up') return [...values.slice().reverse(), ...values];
-  if (m === 'pinkyup') return values.length ? [values[values.length - 1], ...values.slice(0, -1)] : values;
-  if (m === 'thumbup') return values.length ? [values[0], ...values.slice(1).reverse()] : values;
-  if (m === 'pinkyupdown') {
-    const pinky = orderedArpValues(values, 'pinkyup');
-    return [...pinky, ...pinky.slice(1, -1).reverse()];
-  }
-  if (m === 'thumbupdown') {
-    const thumb = orderedArpValues(values, 'thumbup');
-    return [...thumb, ...thumb.slice(1, -1).reverse()];
-  }
-  if (m === 'converge') {
+  if (values.length < 2) return values.slice();
+  const init = a => a.slice(0, -1);
+  const rev  = a => a.slice().reverse();
+  const converge = a => {
     const out = [];
-    let l = 0, r = values.length - 1;
-    while (l <= r) { out.push(values[l++]); if (l <= r) out.push(values[r--]); }
-    return out;
-  }
-  if (m === 'diverge') {
-    const mid = Math.floor((values.length - 1) / 2);
-    const out = [values[mid]];
-    for (let i = 1; out.length < values.length; i++) {
-      if (mid - i >= 0) out.push(values[mid - i]);
-      if (mid + i < values.length) out.push(values[mid + i]);
+    let rest = a.slice(), fromEnd = false;
+    while (rest.length) {
+      out.push(fromEnd ? rest.pop() : rest.shift());
+      fromEnd = !fromEnd;
     }
     return out;
+  };
+  const pinkyup = a => init(a).flatMap(v => [v, a[a.length - 1]]);
+  const thumbup = a => a.slice(1).flatMap(v => [a[0], v]);
+  const x = values.slice();
+  switch (m) {
+    case 'down':         return rev(x);
+    case 'updown':       return [...init(x), ...init(rev(x))];
+    case 'downup':       return [...init(rev(x)), ...init(x)];
+    case 'up&down':      return [...x, ...rev(x)];
+    case 'down&up':      return [...rev(x), ...x];
+    case 'converge':     return converge(x);
+    case 'diverge':      return rev(converge(x));
+    case 'disconverge':  return [...converge(x), ...rev(converge(x)).slice(1)];
+    case 'pinkyup':      return pinkyup(x);
+    case 'pinkyupdown':  return [...init(pinkyup(x)), ...init(rev(pinkyup(x)))];
+    case 'thumbup':      return thumbup(x);
+    case 'thumbupdown':  return [...init(thumbup(x)), ...init(rev(thumbup(x)))];
+    default:             return x; // 'up' and unknown modes
   }
-  if (m === 'disconverge') return orderedArpValues(values, 'converge').reverse();
-  return values;
 }
 
 function arpElements(elements, mode = 'up') {
