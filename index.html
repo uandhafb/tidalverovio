@@ -3657,7 +3657,13 @@ function applySourceArpChain(chainText, pattern) {
   const chain = parseChain(chainText);
   const arpIndex = chain.findIndex(t => t.fn === 'arp');
   if (arpIndex < 0) return { pattern, chain };
-  const transformed = transformPatternWithArpModes(pattern, chain[arpIndex].mode || 'up');
+  // A `<…>` mode argument alternates per CYCLE (Tidal semantics) — leave the
+  // arp token in the chain so applyTransform resolves it each cycle via
+  // cycleModeValue. Only space-separated mode lists (per chord occurrence)
+  // are pre-expanded into the pattern text here.
+  const mode = String(chain[arpIndex].mode || 'up').trim();
+  if (/^<.*>$/.test(mode)) return { pattern, chain };
+  const transformed = transformPatternWithArpModes(pattern, mode);
   if (!transformed) return { pattern, chain };
   return {
     pattern: transformed,
