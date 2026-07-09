@@ -1505,9 +1505,57 @@ function promotePoly(layers) {
 function revElements(elements) {
   return elements.slice().reverse().map(el => {
     if (el.children) return { ...el, children: revElements(el.children) };
+    // Reverse INSIDE each alternation branch too, so a group inside `<…>`
+    // (e.g. an arpeggiated chord) is reversed whichever branch the cycle picks.
+    // (plyElements/iterElements/scaleValues/rotValues/rolledElements/
+    // swingElements have the same `.alternatives` gap — fix if needed later.)
+    if (el.alternatives) return { ...el, alternatives: el.alternatives.map(a => revElements([a])[0]) };
     if (el.inner)    return { ...el, inner: revElements([el.inner])[0] };
     return el;
   });
+}
+
+// Combine two structurally-identical layers (e.g. jux's original + reversed
+// voices, which share the same rhythm) into ONE layer where each simultaneous
+// leaf pair becomes a chord — so the performer reads a single aligned stack
+// instead of two competing voices. Returns null if the shapes don't line up
+// (different rhythms → not zippable; caller falls back to two layers).
+function zipLayersAsChords(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return null;
+  const out = [];
+  for (let i = 0; i < a.length; i++) {
+    const elA = a[i], elB = b[i];
+    if (elA.type === 'leaf' && elB.type === 'leaf') {
+      const restA = elA.value === '~' || elA.value === 'r';
+      const restB = elB.value === '~' || elB.value === 'r';
+      if (restA && restB) { out.push(elA); continue; }
+      if (restA) { out.push({ ...elB }); continue; }
+      if (restB) { out.push({ ...elA }); continue; }
+      // Both voices on the same pitch (e.g. the middle note of a 3-note arp) →
+      // one notehead, not a doubled unison.
+      if (elA.value === elB.value) { out.push({ ...elA, ghost: false }); continue; }
+      out.push({ ...elA, ghost: false, value: `${elA.value}+${elB.value}` });
+    } else if (elA.children && elB.children) {
+      const merged = zipLayersAsChords(elA.children, elB.children);
+      if (!merged) return null;
+      out.push({ ...elA, children: merged });
+    } else if (elA.alternatives && elB.alternatives && elA.alternatives.length === elB.alternatives.length) {
+      const alts = [];
+      for (let j = 0; j < elA.alternatives.length; j++) {
+        const merged = zipLayersAsChords([elA.alternatives[j]], [elB.alternatives[j]]);
+        if (!merged) return null;
+        alts.push(merged[0]);
+      }
+      out.push({ ...elA, alternatives: alts });
+    } else if (elA.inner && elB.inner) {
+      const merged = zipLayersAsChords([elA.inner], [elB.inner]);
+      if (!merged) return null;
+      out.push({ ...elA, inner: merged[0] });
+    } else {
+      return null; // shapes differ — not zippable
+    }
+  }
+  return out;
 }
 
 function plyElements(elements, n) {
@@ -1858,7 +1906,25 @@ function applyTransform(elements, t, cycleIndex) {
 // layer-level transforms — this is what lets "every 2 (jux rev)" nest:
 // on matching cycles the jux fires and the staff grows a second voice.
 function applyTransformLayers(layers, t, cycleIndex) {
-  if (t.fn === 'jux' || t.fn === 'superimpose')
+  if (t.fn === 'jux')
+    // jux's two stereo voices share the same rhythm, so drawing them together
+    // every cycle makes them collide on shared pitches. Instead rotate the
+    // display across cycles so each voice reads cleanly on its own, then both
+    // together: cycle%3 == 0 → original voice, 1 → transformed (e.g. rev)
+    // voice, 2 → both. Tidal still plays both voices every cycle; this only
+    // changes what the staff shows.
+    return layers.flatMap(layer => {
+      const extra = applyTransformLayers([layer], t.inner, cycleIndex);
+      const phase = ((cycleIndex % 3) + 3) % 3;
+      if (phase === 0) return [layer];
+      if (phase === 1) return extra;
+      // "both": merge the two same-rhythm voices into one layer of chords so
+      // simultaneous notes read as an aligned stack, not two competing stems.
+      // Falls back to two layers if they aren't zippable (different rhythms).
+      const merged = extra.length === 1 ? zipLayersAsChords(layer, extra[0]) : null;
+      return merged ? [merged] : [layer, ...extra];
+    });
+  if (t.fn === 'superimpose')
     return layers.flatMap(layer => [layer, ...applyTransformLayers([layer], t.inner, cycleIndex)]);
   if (t.fn === 'every')
     return ((cycleIndex % t.n) + t.n) % t.n === 0
@@ -2664,9 +2730,16 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   for (let c = startCycle; c < startCycle + numCycles; c++) {
     const measureN = c - startCycle + 1;
     const staffEls = parsed.map((p, idx) => {
+      // jux rotates orig/rev/both over 3 cycles (phase = c%3, chosen in
+      // applyChain). To let each alternation branch be seen through a full
+      // rotation, resolve pattern CONTENT at a 3× slower cycle so `<A B>`
+      // holds A for cycles 0-2 (orig/rev/both), then B for 3-5. Display-only:
+      // Tidal still swaps the branch every cycle in the audio.
+      const juxActive = (p.chain || []).some(t => t.fn === 'jux');
+      const contentCycle = juxActive ? Math.floor(c / 3) : c;
       const cycleLayers = p.layersByCycle ? p.layersByCycle(c) : applyChain(p.baseLayers, p.chain, c);
       const layerEls = cycleLayers.map((layerElements, li) => {
-        const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, c, pitchInput, new Fraction(c), p.orbit);
+        const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, contentCycle, pitchInput, new Fraction(c), p.orbit);
         return `\n          <layer n="${li + 1}">\n            ${items.join('\n            ')}\n          </layer>`;
       });
       return `\n        <staff n="${idx + 1}">${layerEls.join('')}\n        </staff>`;
