@@ -2315,6 +2315,15 @@ let noteIdSeq = 1;
 let liveNotes = [];
 const NOTE_HIGHLIGHT_COLOR = '#ff0000';
 
+// One highlight per orbit at a time, keyed by orbit → { ids, timer }. Needed
+// because the clear-timeout below is only an approximation of a note's real
+// duration (tuplets get rounded to the nearest notated value in
+// decomposeDuration/durationToMEI, since there's no such thing as a written
+// third-note) — for a fast triplet that approximation can outlast the real
+// gap to the next onset, so without this the next note's flash would land
+// before the previous one faded, showing two notes red at once.
+const activeHighlight = new Map();
+
 // Returns an array of MEI XML strings (multiple = tied notes / split rests),
 // or null if the token can't be rendered in this mode. prob < 1 (degrade `?`)
 // renders grey so probabilistic notes stay visible but visually distinct.
@@ -2487,6 +2496,11 @@ function eventsToElements(events) {
 function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', pitchInput = 'name', startCycle = 0 } = {}) {
   noteIdSeq = 1;
   liveNotes = [];
+  // Note ids restart from n1 each render, so a pending clear-timer from the
+  // previous render could otherwise blacken an unrelated note that happens
+  // to reuse its id.
+  for (const h of activeHighlight.values()) clearTimeout(h.timer);
+  activeHighlight.clear();
   iterApproximated = 0;
   playedApproximated = 0;
   const parsed = patterns.map(p => {
@@ -3065,9 +3079,19 @@ function paintNote(id, color) {
 // are in the score. Settles back to black after the note's own duration —
 // which for a degraded (?) note also doubles as "this one actually played".
 function highlightNote(ln) {
+  const prev = activeHighlight.get(ln.orbit);
+  if (prev) {
+    clearTimeout(prev.timer);
+    for (const id of prev.ids) paintNote(id, '#000000');
+  }
+
   for (const id of ln.ids) paintNote(id, NOTE_HIGHLIGHT_COLOR);
   const ms = Math.max(60, ln.dur * getCycleMs());
-  setTimeout(() => { for (const id of ln.ids) paintNote(id, '#000000'); }, ms);
+  const timer = setTimeout(() => {
+    for (const id of ln.ids) paintNote(id, '#000000');
+    if (activeHighlight.get(ln.orbit)?.timer === timer) activeHighlight.delete(ln.orbit);
+  }, ms);
+  activeHighlight.set(ln.orbit, { ids: ln.ids, timer });
 }
 
 function resolveLiveNotes(orbit, cycleFloat) {
