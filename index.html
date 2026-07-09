@@ -1324,6 +1324,11 @@ function parseChainSegment(seg) {
     return { fn: 'scale', scale: scaleM[2], root: scaleM[3] || 'c5', raw: seg.trim() };
   }
 
+  const arpQuotedM = seg.trim().match(/^(arp|arpg|arpeggiate)\s+"([^"]+)"$/);
+  if (arpQuotedM) {
+    return { fn: 'arp', mode: arpQuotedM[2], raw: seg.trim() };
+  }
+
   const words = seg.replace(/[()]/g, ' ').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return null;
   const [head, ...rest] = words;
@@ -1424,7 +1429,7 @@ function parseChainSegment(seg) {
   }
 
   if (head === 'rolled' || head === 'rolledBy') {
-    const amount = head === 'rolledBy' ? (parseTimeValue(rest[0]) ?? 0.08) : 0.08;
+    const amount = head === 'rolledBy' ? (parseTimeValue(rest[0]) ?? 0.25) : 0.25;
     return { fn: 'rolled', amount, raw: seg.trim() };
   }
 
@@ -1639,24 +1644,43 @@ function rotValues(elements, n) {
 
 function chordLeafNames(value) {
   const chord = parseChord(value);
-  if (!chord || !chord.chord) return null;
-  return chord.chord.map(pitchInfoToTidalName);
+  if (chord && chord.chord) return chord.chord.map(pitchInfoToTidalName);
+  const info = parseNote(value, 'name');
+  if (info && info.chord) return info.chord.map(pitchInfoToTidalName);
+  return null;
+}
+
+function normalizeArpMode(mode) {
+  return String(mode || 'up').replace(/^["']|["']$/g, '').toLowerCase();
 }
 
 function orderedArpValues(values, mode) {
-  if (mode === 'down') return values.slice().reverse();
-  if (mode === 'updown') return [...values, ...values.slice(1, -1).reverse()];
-  if (mode === 'downup') {
+  const m = normalizeArpMode(mode);
+  if (m === 'down') return values.slice().reverse();
+  if (m === 'updown') return [...values, ...values.slice(1, -1).reverse()];
+  if (m === 'downup') {
     const down = values.slice().reverse();
     return [...down, ...down.slice(1, -1).reverse()];
   }
-  if (mode === 'converge') {
+  if (m === 'up&down') return [...values, ...values.slice().reverse()];
+  if (m === 'down&up') return [...values.slice().reverse(), ...values];
+  if (m === 'pinkyup') return values.length ? [values[values.length - 1], ...values.slice(0, -1)] : values;
+  if (m === 'thumbup') return values.length ? [values[0], ...values.slice(1).reverse()] : values;
+  if (m === 'pinkyupdown') {
+    const pinky = orderedArpValues(values, 'pinkyup');
+    return [...pinky, ...pinky.slice(1, -1).reverse()];
+  }
+  if (m === 'thumbupdown') {
+    const thumb = orderedArpValues(values, 'thumbup');
+    return [...thumb, ...thumb.slice(1, -1).reverse()];
+  }
+  if (m === 'converge') {
     const out = [];
     let l = 0, r = values.length - 1;
     while (l <= r) { out.push(values[l++]); if (l <= r) out.push(values[r--]); }
     return out;
   }
-  if (mode === 'diverge') {
+  if (m === 'diverge') {
     const mid = Math.floor((values.length - 1) / 2);
     const out = [values[mid]];
     for (let i = 1; out.length < values.length; i++) {
@@ -1665,6 +1689,7 @@ function orderedArpValues(values, mode) {
     }
     return out;
   }
+  if (m === 'disconverge') return orderedArpValues(values, 'converge').reverse();
   return values;
 }
 
@@ -1682,15 +1707,24 @@ function arpElements(elements, mode = 'up') {
   });
 }
 
-function rolledElements(elements, amount = 0.08) {
+function rolledElements(elements, amount = 0.25) {
   return elements.map(el => {
     if (el.type === 'leaf') {
       const values = chordLeafNames(el.value);
       if (!values) return el;
-      const restWeight = Math.max(0.05, Math.min(0.45, amount));
+      if (values.length <= 1) return { ...el, value: values[0] || el.value };
+      const roll = fractionFromFloat(Math.max(0.001, Math.min(0.95, amount)));
+      const steps = values.length - 1;
+      const tickWeight = roll.n;
+      const holdWeight = Math.max(1, (roll.d - roll.n) * steps);
       return {
         type: 'group',
-        children: values.map((value, i) => ({ type: 'leaf', value, weight: i === values.length - 1 ? 1 : restWeight, prob: el.prob })),
+        children: values.map((value, i) => ({
+          type: 'leaf',
+          value,
+          weight: i === values.length - 1 ? holdWeight : tickWeight,
+          prob: el.prob
+        })),
         weight: el.weight
       };
     }
@@ -1729,7 +1763,7 @@ function applyTransform(elements, t, cycleIndex) {
     case 'scale':
       return scaleValues(elements, t.scale, t.root);
     case 'arp':
-      return arpElements(elements, t.mode);
+      return arpElements(elements, cycleModeValue(t.mode, cycleIndex, 'up'));
     case 'rolled':
       return rolledElements(elements, t.amount);
     // degradeBy x: each event REMOVED with probability x → plays with 1-x.
@@ -2118,9 +2152,11 @@ const CHORD_INTERVALS = {
   maj: [0, 4, 7], major: [0, 4, 7], min: [0, 3, 7], minor: [0, 3, 7], m: [0, 3, 7],
   dim: [0, 3, 6], aug: [0, 4, 8], sus2: [0, 2, 7], sus4: [0, 5, 7],
   '5': [0, 7], '6': [0, 4, 7, 9], min6: [0, 3, 7, 9], m6: [0, 3, 7, 9],
-  '7': [0, 4, 7, 10], dom7: [0, 4, 7, 10], maj7: [0, 4, 7, 11],
+  '7': [0, 4, 7, 10], dom7: [0, 4, 7, 10], maj7: [0, 4, 7, 11], major7: [0, 4, 7, 11],
   min7: [0, 3, 7, 10], m7: [0, 3, 7, 10], dim7: [0, 3, 6, 9],
   m7b5: [0, 3, 6, 10], min7b5: [0, 3, 6, 10],
+  sevensus2: [0, 2, 7, 10], '7sus2': [0, 2, 7, 10],
+  sevensus4: [0, 5, 7, 10], '7sus4': [0, 5, 7, 10],
   sevenflat9: [0, 4, 7, 10, 13], '7flat9': [0, 4, 7, 10, 13], '7b9': [0, 4, 7, 10, 13],
   '9': [0, 4, 7, 10, 14], maj9: [0, 4, 7, 11, 14], min9: [0, 3, 7, 10, 14], m9: [0, 3, 7, 10, 14],
   m9sharp5: [0, 3, 8, 10, 14], min9sharp5: [0, 3, 8, 10, 14], 'm9#5': [0, 3, 8, 10, 14], 'min9#5': [0, 3, 8, 10, 14],
@@ -3378,6 +3414,8 @@ let bridgeAutoReconnect = false;
 // function kind, and the quoted mini-notation.
 const TIDAL_LINE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(sound|s|note|n)\s+"([^"]+)"/g;
 const TIDAL_SCALE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\((scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?\s+"([^"]+)"\)/g;
+const TIDAL_ARP_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\(\s*(arp|arpg|arpeggiate)\s+"([^"]+)"\s+"([^"]+)"\s*\)/g;
+const TIDAL_ARPG_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\(\s*(arpg|arpeggiate)\s+"([^"]+)"\s*\)/g;
 const TIDAL_CHOOSE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(sound|s|note|n)\s+\((choose|cycleChoose|wchoose)\s+\[([^\]]+)\]\)/g;
 const ALL_LINE_RE = /^\s*all\s*\$\s*(.+)$/m;
 
@@ -3398,6 +3436,28 @@ function stripTidalComments(source) {
     if (!trimmed || trimmed.startsWith('--')) return '';
     return line.split('--')[0];
   }).join('\n');
+}
+
+function joinTidalContinuationLines(source) {
+  const lines = String(source).split(/\r?\n/);
+  const out = [];
+  let current = '';
+  for (const line of lines) {
+    if (/^\s*(?:d\d+|all)\b\s*\$/.test(line)) {
+      if (current) out.push(current);
+      current = line.trim();
+    } else if (current && /^\s+/.test(line) && line.trim()) {
+      current += ' ' + line.trim();
+    } else {
+      if (current) {
+        out.push(current);
+        current = '';
+      }
+      out.push(line);
+    }
+  }
+  if (current) out.push(current);
+  return out.join('\n');
 }
 
 function livePatternLooksMidi(pattern) {
@@ -3450,6 +3510,96 @@ function cycleValues(raw) {
   const s = String(raw).trim().replace(/^["']|["']$/g, '');
   if (/^<.*>$/.test(s)) return s.slice(1, -1).trim().split(/\s+/).filter(Boolean);
   return [s];
+}
+
+function cycleValue(raw, cycleIndex, fallback = '') {
+  const values = cycleValues(raw);
+  if (!values.length) return fallback;
+  return values[((cycleIndex % values.length) + values.length) % values.length];
+}
+
+function cycleModeValues(raw) {
+  if (!raw) return [];
+  const s = String(raw).trim().replace(/^["']|["']$/g, '');
+  const inner = /^<.*>$/.test(s) ? s.slice(1, -1) : s;
+  return inner.trim().split(/\s+/).filter(Boolean);
+}
+
+function cycleModeValue(raw, cycleIndex, fallback = 'up') {
+  const values = cycleModeValues(raw);
+  if (!values.length) return fallback;
+  return values[((cycleIndex % values.length) + values.length) % values.length];
+}
+
+function transformArpExpression(modePattern, chordPattern) {
+  const modes = cycleModeValues(modePattern);
+  const chords = cycleValues(chordPattern);
+  if (!chords.length) return null;
+  const cycleLen = [modes.length || 1, chords.length].reduce((a, b) => lcm(a, b || 1), 1);
+  const groups = [];
+  for (let c = 0; c < cycleLen; c++) {
+    const mode = modes.length ? modes[c % modes.length] : 'up';
+    const chord = chords[c % chords.length];
+    const values = chordLeafNames(chord);
+    if (!values) return null;
+    groups.push(`[${orderedArpValues(values, mode).join(' ')}]`);
+  }
+  return groups.length === 1 ? groups[0] : `<${groups.join(' ')}>`;
+}
+
+function serializePatternElement(el) {
+  if (el.type === 'leaf') return el.value;
+  if (el.children) return `[${el.children.map(serializePatternElement).join(' ')}]`;
+  if (el.alternatives) return `<${el.alternatives.map(serializePatternElement).join(' ')}>`;
+  if (el.inner) return serializePatternElement(el.inner);
+  return '~';
+}
+
+function transformArpgPattern(pattern) {
+  let layers;
+  try { layers = promotePoly(parseTokens(tokenise(pattern), 0).layers); }
+  catch { return null; }
+  const arpLayers = layers.map(layer => arpElements(layer, 'up'));
+  return arpLayers.map(layer => layer.map(serializePatternElement).join(' ')).join(', ');
+}
+
+function transformPatternWithArpModes(pattern, modePattern) {
+  let layers;
+  try { layers = promotePoly(parseTokens(tokenise(pattern), 0).layers); }
+  catch { return null; }
+  const modes = cycleModeValues(modePattern);
+  const state = { i: 0 };
+  const apply = el => {
+    if (el.type === 'leaf') {
+      const values = chordLeafNames(el.value);
+      if (!values) return el;
+      const mode = modes.length ? modes[state.i % modes.length] : 'up';
+      state.i++;
+      return {
+        type: 'group',
+        children: orderedArpValues(values, mode).map(value => ({ type: 'leaf', value, weight: 1, prob: el.prob })),
+        weight: el.weight
+      };
+    }
+    if (el.children) return { ...el, children: el.children.map(apply) };
+    if (el.alternatives) return { ...el, alternatives: el.alternatives.map(apply) };
+    if (el.inner) return { ...el, inner: apply(el.inner) };
+    return el;
+  };
+  const arpLayers = layers.map(layer => layer.map(apply));
+  return arpLayers.map(layer => layer.map(serializePatternElement).join(' ')).join(', ');
+}
+
+function applySourceArpChain(chainText, pattern) {
+  const chain = parseChain(chainText);
+  const arpIndex = chain.findIndex(t => t.fn === 'arp');
+  if (arpIndex < 0) return { pattern, chain };
+  const transformed = transformPatternWithArpModes(pattern, chain[arpIndex].mode || 'up');
+  if (!transformed) return { pattern, chain };
+  return {
+    pattern: transformed,
+    chain: chain.filter((_, i) => i !== arpIndex)
+  };
 }
 
 function serializePitchElement(el, addSemis, octaveValue) {
@@ -3589,6 +3739,7 @@ function handleBridgeMessage(message) {
 
   if (message.type === 'source-update' && typeof message.source === 'string') {
     const activeSource = stripTidalComments(message.source);
+    const sourceForRegex = joinTidalContinuationLines(activeSource);
     // Matches both `setcps (135/60/4)` and bare `setcps 0.55`; `setbpm 120`
     // is converted through Tidal's 4-beats-per-cycle convention.
     const cpsM = activeSource.match(/setcps\s*\(([^)]+)\)/) ||
@@ -3615,12 +3766,45 @@ function handleBridgeMessage(message) {
     }
     markBridgeUpdate();
 
-    const allM = activeSource.match(ALL_LINE_RE);
+    const allM = sourceForRegex.match(ALL_LINE_RE);
     allChain = allM ? parseChain(allM[1]) : [];
 
     let match;
     const activeLines = new Set();
     const handledExprLines = new Set();
+
+    TIDAL_ARP_RE.lastIndex = 0;
+    while ((match = TIDAL_ARP_RE.exec(sourceForRegex))) {
+      const [, line, chainText, kind, , modePattern, chordPattern] = match;
+      const pattern = transformArpExpression(modePattern, chordPattern);
+      if (!pattern) continue;
+      activeLines.add(line);
+      handledExprLines.add(line);
+      applyPatternToLine(line, pattern, {
+        flag: line === message.selectedLine,
+        chain: parseChain(chainText),
+        kind,
+        sourceManaged: true,
+        pitchInput: 'name'
+      });
+    }
+
+    TIDAL_ARPG_RE.lastIndex = 0;
+    while ((match = TIDAL_ARPG_RE.exec(sourceForRegex))) {
+      const [, line, chainText, kind, , chordPattern] = match;
+      const pattern = transformArpgPattern(chordPattern);
+      if (!pattern) continue;
+      activeLines.add(line);
+      handledExprLines.add(line);
+      applyPatternToLine(line, pattern, {
+        flag: line === message.selectedLine,
+        chain: parseChain(chainText),
+        kind,
+        sourceManaged: true,
+        pitchInput: 'name'
+      });
+    }
+
     for (const block of sourceBlocks(activeSource)) {
       const pitchBlock = parsePitchSourceBlock(block);
       if (!pitchBlock) continue;
@@ -3636,7 +3820,7 @@ function handleBridgeMessage(message) {
     }
 
     TIDAL_SCALE_RE.lastIndex = 0;
-    while ((match = TIDAL_SCALE_RE.exec(activeSource))) {
+    while ((match = TIDAL_SCALE_RE.exec(sourceForRegex))) {
       const [, line, chainText, kind, , scaleName, degrees] = match;
       activeLines.add(line);
       handledExprLines.add(line);
@@ -3650,7 +3834,7 @@ function handleBridgeMessage(message) {
     }
 
     TIDAL_CHOOSE_RE.lastIndex = 0;
-    while ((match = TIDAL_CHOOSE_RE.exec(activeSource))) {
+    while ((match = TIDAL_CHOOSE_RE.exec(sourceForRegex))) {
       const [, line, chainText, kind, fn, itemsText] = match;
       const items = parseChoiceItems(`[${itemsText}]`);
       activeLines.add(line);
@@ -3667,13 +3851,14 @@ function handleBridgeMessage(message) {
     }
 
     TIDAL_LINE_RE.lastIndex = 0;
-    while ((match = TIDAL_LINE_RE.exec(activeSource))) {
+    while ((match = TIDAL_LINE_RE.exec(sourceForRegex))) {
       const [, line, chainText, kind, pattern] = match;
       if (handledExprLines.has(line)) continue;
+      const sourceArp = applySourceArpChain(chainText, pattern);
       activeLines.add(line);
-      applyPatternToLine(line, pattern, {
+      applyPatternToLine(line, sourceArp.pattern, {
         flag: line === message.selectedLine,
-        chain: parseChain(chainText),
+        chain: sourceArp.chain,
         kind,
         sourceManaged: true
       });
