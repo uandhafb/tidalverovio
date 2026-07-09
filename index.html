@@ -673,6 +673,14 @@
         <label class="field">&nbsp;<span class="hint">played = notates real events, grid-quantized</span></label>
       </div>
 
+      <div class="control-grid">
+        <label class="field">
+          Highlight lead
+          <input id="highlightLeadInput" type="number" min="0" step="5" value="110">
+        </label>
+        <label class="field">&nbsp;<span class="hint">ms — flashes notes this much earlier, to match audio latency</span></label>
+      </div>
+
       <label class="field">
         Presets
         <div class="presets">
@@ -2399,7 +2407,7 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
   // event — Tidal emits nothing for silence — so they're instead resolved
   // by the clock itself, in resolveRests.
   if (meta && meta.orbit !== null && meta.orbit !== undefined) {
-    liveNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, dur: meta.dur || 0, prob, rest: noteInfo.rest, done: false });
+    liveNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, dur: meta.dur || 0, prob, rest: noteInfo.rest, done: false, preFlashed: false });
   }
 
   return xml;
@@ -2708,7 +2716,7 @@ function masterLoop() {
   const cyclePhase = cf - Math.floor(cf);
   const running = live || playback.playing;
 
-  if (running) resolveRests(cf);
+  if (running) { resolveRests(cf); resolveUpcomingNotes(cf); }
 
   const pct = (running ? cyclePhase * 100 : 0).toFixed(1);
   document.getElementById('cyclePulse').style.background =
@@ -2752,6 +2760,7 @@ const playback = { playing: false, cycleIndex: 0, windowStart: 0, timer: null, c
 
 function getCps()     { return Math.max(0.001, parseFloat(document.getElementById('cpsInput').value) || 0.5625); }
 function getCycleMs() { return 1000 / getCps(); }
+function getHighlightLeadMs() { return Math.max(0, parseFloat(document.getElementById('highlightLeadInput').value) || 0); }
 
 function updateCpsDisplay() {
   document.getElementById('cycleLength').value = `${(getCycleMs() / 1000).toFixed(3)} s`;
@@ -3112,6 +3121,32 @@ function resolveRests(cf) {
     if (ln.done || !ln.rest) continue;
     if (cf >= ln.begin) {
       ln.done = true;
+      highlightNote(ln);
+    }
+  }
+}
+
+// A real Tidal event can only confirm a note *after* it already happened —
+// it has to round-trip through OSC, the bridge, and a websocket before this
+// page hears about it — so on their own, confirmed events always flash a
+// little behind the speakers. While Tidal's clock is live, pre-flash notes
+// `highlightLeadMs` early using the same continuously-extrapolated clock
+// that drives the cycle pulse, so the visible onset can lead instead of lag.
+// resolveLiveNotes still does the authoritative confirm/clear once the real
+// event lands — this only moves the *visible* flash earlier to compensate
+// for that pipeline latency. Tradeoff: if the lead is set high enough, and
+// this exact note gets dropped or mutated (jux/every/degrade), it can flash
+// on a note that wasn't actually played that cycle — keep the lead small
+// (tens of ms) relative to note durations to keep that risk negligible.
+function resolveUpcomingNotes(cf) {
+  if (!clockIsLive()) return;
+  const leadMs = getHighlightLeadMs();
+  if (leadMs <= 0) return;
+  const leadCycles = (leadMs / 1000) * remoteClock.cps;
+  for (const ln of liveNotes) {
+    if (ln.done || ln.rest || ln.preFlashed) continue;
+    if (cf >= ln.begin - leadCycles) {
+      ln.preFlashed = true;
       highlightNote(ln);
     }
   }
