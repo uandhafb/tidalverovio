@@ -39,4 +39,8 @@ setbpm 120
 --d4 $ n (scale "major" "7 .. 0") # sound "superpiano"
 
 --ARPEGGIOS
---
+--d1 $ note (arp "<up down diverge>" "<a'm9'8 e'7sus4'8>") # sound "superpiano"
+--d2 $ note (arpg "'major7 [0,4,7,11]") # sound "superpiano"
+--d3 $ rolled $ note "<a'm9'8 e'7sus4'8>" # sound "superpiano"
+--d4 $ rolledBy 0.45 $ note "<a'm9'8 e'7sus4'7>" # sound "superpiano"
+--d5 $ arp "updown thumbup" $ note "<c'maj'4 e'min7'4>" # s "superpiano"
