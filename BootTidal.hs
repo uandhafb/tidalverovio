@@ -45,6 +45,22 @@ let only = (hush >>)
     getnow = streamGetnow tidal
     enableLink = streamEnableLink tidal
     disableLink = streamDisableLink tidal
+    -- Ableton Link phase nudge, measured by ear at these (cps, nudge) points
+    -- (sorted by cps; not monotonic, so no single a+b/cps formula fits).
+    -- autoNudge piecewise-linearly interpolates between them, extrapolating
+    -- using the nearest segment's slope outside the measured range.
+    -- Call after every setcps/setbpm change. Add more points here as you
+    -- calibrate more tempos.
+    nudgeTable = [(0.125, 0.253), (0.5, 0.045), (1.0, 0.18), (1.1, 0.22)]
+    interpNudge c = go nudgeTable
+      where
+        go ((c1,n1):(c2,n2):rest)
+          | c <= c2 || null rest = n1 + (n2 - n1) * (c - c1) / (c2 - c1)
+          | otherwise = go ((c2,n2):rest)
+        go _ = 0
+    autoNudge = do
+      c <- getcps
+      nudgeAll (interpNudge (realToFrac c))
     _p k _ = streamReplace tidal k silence
     p_ = _p
     xfade i = transition tidal True (Sound.Tidal.Transition.xfadeIn 4) i
