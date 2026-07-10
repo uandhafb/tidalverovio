@@ -1213,7 +1213,7 @@ const SUPPORTED_FNS = new Set([
   'almostAlways', 'often', 'rarely', 'almostNever', 'choose', 'wchoose', 'cycleChoose',
   'slow', 'sparsity', 'fastGap', 'densityGap', 'compress', 'zoom', 'within', 'off',
   'press', 'pressBy', 'swing', 'swingBy', 'scale', 'toScale', 'arp', 'arpg', 'arpeggiate',
-  'rolled', 'rolledBy'
+  'rolled', 'rolledBy', 'layer'
 ]);
 
 function parseBoolPatternArg(text) {
@@ -1335,6 +1335,23 @@ function parseChainSegment(seg) {
   const arpQuotedM = seg.trim().match(/^(arp|arpg|arpeggiate)\s+"([^"]+)"$/);
   if (arpQuotedM) {
     return { fn: 'arp', mode: arpQuotedM[2], raw: seg.trim() };
+  }
+
+  // layer [f1, f2, …]: stack each function's version of the pattern. On the
+  // staff we rotate one clean cycle per function, then one cycle with all
+  // superposed. `id` (and any untranslatable item, e.g. an effect like
+  // `# crush 4`) becomes a null inner → shows the base pattern for that slot.
+  const layerM = seg.trim().match(/^layer\s+\[(.+)\]$/);
+  if (layerM) {
+    const items = layerM[1].split(/,(?![^()]*\))/).map(s => s.trim()).filter(Boolean);
+    if (!items.length) return { fn: '?', raw: seg.trim() };
+    const inners = items.map(it => {
+      if (it === 'id') return null;
+      const bare = it.replace(/^\((.*)\)$/, '$1').trim();
+      const s = parseChainSegment(bare);
+      return s && s.fn !== '?' ? s : null;
+    });
+    return { fn: 'layer', inners, raw: seg.trim() };
   }
 
   const words = seg.replace(/[()]/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -1924,6 +1941,18 @@ function applyTransformLayers(layers, t, cycleIndex) {
       const merged = extra.length === 1 ? zipLayersAsChords(layer, extra[0]) : null;
       return merged ? [merged] : [layer, ...extra];
     });
+  if (t.fn === 'layer') {
+    // Rotate the display: one cycle per function (each a clean single voice),
+    // then a final cycle with all versions superposed — period = N+1, so it
+    // adapts to however many functions are in the list. Tidal plays them all
+    // stacked every cycle; this only changes what the staff shows.
+    const N = t.inners.length, period = N + 1;
+    const phase = ((cycleIndex % period) + period) % period;
+    const one = (layer, inner) => inner ? applyTransformLayers([layer], inner, cycleIndex) : [layer];
+    return layers.flatMap(layer =>
+      phase < N ? one(layer, t.inners[phase])
+                : t.inners.flatMap(inner => one(layer, inner)));
+  }
   if (t.fn === 'superimpose')
     return layers.flatMap(layer => [layer, ...applyTransformLayers([layer], t.inner, cycleIndex)]);
   if (t.fn === 'every')
