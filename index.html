@@ -3367,7 +3367,12 @@ function resolveUpcomingNotes(cf) {
   if (leadMs <= 0) return;
   const leadCycles = (leadMs / 1000) * remoteClock.cps;
   for (const ln of liveNotes) {
-    if (ln.done || ln.rest || ln.preFlashed) continue;
+    // Degraded (`?`) notes may or may not play this cycle. The clock reaches
+    // their position every cycle, so pre-flashing them would light them red
+    // even on the cycles they're dropped. Leave them to the reactive path
+    // (resolveLiveNotes), which only fires when the real event arrives — i.e.
+    // only when the note actually plays.
+    if (ln.done || ln.rest || ln.preFlashed || ln.prob < 1) continue;
     if (cf >= ln.begin - leadCycles) {
       ln.preFlashed = true;
       highlightNote(ln);
