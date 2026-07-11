@@ -621,6 +621,7 @@
           Cycle view
           <select id="cyclesOpt">
             <option value="1" selected>Current cycle</option>
+            <option value="2">Next 2 cycles</option>
             <option value="4">Next 4 cycles</option>
             <option value="8">Next 8 cycles</option>
           </select>
@@ -3587,6 +3588,11 @@ const TIDAL_SCALE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\((scale|toScale)\s+
 const TIDAL_ARP_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\(\s*(arp|arpg|arpeggiate)\s+"([^"]+)"\s+"([^"]+)"\s*\)/g;
 const TIDAL_ARPG_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\(\s*(arpg|arpeggiate)\s+"([^"]+)"\s*\)/g;
 const TIDAL_CHOOSE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(sound|s|note|n)\s+\((choose|cycleChoose|wchoose)\s+\[([^\]]+)\]\)/g;
+// Generic applied form: note (<functions> "<pattern>"), e.g. note (iter 3 "…"),
+// note (rev "…"), note (every 2 rev "…"). Requires exactly ONE quoted string and
+// no inner parens/quotes, so it never collides with the two-quote scale/arp forms
+// (which run first and mark their lines handled).
+const TIDAL_NOTEFN_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\(\s*([^"()]*?)\s*"([^"]+)"\s*\)/g;
 const ALL_LINE_RE = /^\s*all\s*\$\s*(.+)$/m;
 
 // Chain from an `all $ …` line in the source — applies to every line.
@@ -4023,6 +4029,23 @@ function handleBridgeMessage(message) {
         pitchInput: (kind === 'note' || kind === 'n') && items.every(item => /^-?\d+(?:\.\d+)?$/.test(typeof item === 'string' ? item : item.value))
           ? pitchInputForLiveNumeric(kind, items.map(item => typeof item === 'string' ? item : item.value).join(' '))
           : 'name'
+      });
+    }
+
+    TIDAL_NOTEFN_RE.lastIndex = 0;
+    while ((match = TIDAL_NOTEFN_RE.exec(sourceForRegex))) {
+      const [, line, outerChain, kind, innerFns, pattern] = match;
+      if (handledExprLines.has(line)) continue;
+      // Functions inside note(...) apply to the pattern first (innermost), so
+      // they sit after the outer chain — applyChain runs the chain right-to-left.
+      const chain = [...parseChain(outerChain), ...parseChain(innerFns)];
+      activeLines.add(line);
+      handledExprLines.add(line);
+      applyPatternToLine(line, pattern, {
+        flag: line === message.selectedLine,
+        chain,
+        kind,
+        sourceManaged: true
       });
     }
 
