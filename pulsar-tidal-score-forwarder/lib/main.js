@@ -148,7 +148,11 @@ module.exports = {
 
     await postBridge("/source", {
       source,
-      selectedLine
+      selectedLine,
+      // The full text of the line the performer just evaluated — lets the score
+      // page pick the right pattern when an orbit appears on several lines, and
+      // recognise mutes (`dN silence`, `_dN …`, `hush`). Empty on plain typing.
+      selectedLineText: options.selectedLineText || ""
     });
 
     if (!options.quiet) {
@@ -160,7 +164,10 @@ module.exports = {
     if (!atom.config.get("tidal-verovio-forwarder.syncOnTidalEvaluation")) return;
     if (!event || !event.type) return;
     if (/^tidal-verovio-forwarder:/.test(event.type)) return;
-    if (!isLikelyTidalEvaluationCommand(event.type)) return;
+    // Cmd+. and the like fire `tidalcycles:hush` — a panic that mutes every
+    // orbit regardless of the cursor line. Handle it before the evaluation path.
+    const isHush = isHushCommand(event.type);
+    if (!isHush && !isLikelyTidalEvaluationCommand(event.type)) return;
 
     const editor = atom.workspace.getActiveTextEditor();
     if (!editor || !isTidalEditor(editor)) return;
@@ -171,11 +178,18 @@ module.exports = {
     this.evaluationSyncTimer = setTimeout(async () => {
       this.evaluationSyncTimer = null;
       try {
-        const evaluatedPattern = extractSelectedOrCurrentPattern(editor);
-        await this.sendEditor(editor, {
-          quiet: true,
-          selectedLine: evaluatedPattern ? evaluatedPattern.line : ""
-        });
+        if (isHush) {
+          // Panic: tell the score to blank everything, not to read the cursor line.
+          await this.sendEditor(editor, { quiet: true, selectedLine: "all", selectedLineText: "hush" });
+        } else {
+          const selectedLineText = rawEvaluatedLine(editor);
+          const evaluatedPattern = extractSelectedOrCurrentPattern(editor);
+          await this.sendEditor(editor, {
+            quiet: true,
+            selectedLine: evaluatedPattern ? evaluatedPattern.line : orbitFromRawLine(selectedLineText),
+            selectedLineText
+          });
+        }
         await this.sendSyncMessage();
       } catch {
         // postBridge already reports the connection problem.
@@ -233,6 +247,25 @@ function extractSelectedOrCurrentPattern(editor) {
   return extractPatternFromLine(currentLine);
 }
 
+// The raw text of the line the performer just evaluated (selection's first line,
+// else the cursor's line) — pattern OR mute (`dN silence`, `_dN …`, `hush`).
+function rawEvaluatedLine(editor) {
+  const selectedText = editor.getSelectedText && editor.getSelectedText().trim();
+  if (selectedText) return selectedText.split(/\r?\n/)[0].trim();
+  const cursor = editor.getCursorBufferPosition && editor.getCursorBufferPosition();
+  if (!cursor) return "";
+  return editor.lineTextForBufferRow(cursor.row).trim();
+}
+
+// Orbit an evaluated line targets: `dN …`/`_dN …`/`dN silence` → "dN"; `hush` →
+// "all" (mutes everything); otherwise "".
+function orbitFromRawLine(raw) {
+  const s = String(raw || "").trim();
+  if (/^hush\b/.test(s)) return "all";
+  const m = s.match(/^_?(d\d+)\b/);
+  return m ? m[1] : "";
+}
+
 function extractPatternFromLine(raw) {
   const match = raw.match(/\b(d\d+)\b.*?\b(sound|s|note|n)\s+(?:\([^"]*"([^"]+)"|"([^"]+)")/);
   if (!match) return null;
@@ -241,6 +274,12 @@ function extractPatternFromLine(raw) {
     kind: match[2],
     pattern: match[3] || match[4]
   };
+}
+
+// Panic / stop-all commands: `tidalcycles:hush` (Cmd+.), plus any command whose
+// name ends in `hush`/`panic`. These mute every orbit regardless of the cursor.
+function isHushCommand(commandName) {
+  return /(?::|-|\b)(hush|panic)$/i.test(String(commandName || ""));
 }
 
 function isLikelyTidalEvaluationCommand(commandName) {
