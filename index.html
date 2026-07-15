@@ -2997,6 +2997,10 @@ function setPlayBtnState(playing) {
 // Renders whichever source is active: flagged live lines take priority,
 // otherwise the scratch pattern re-renders (so Play works for both).
 function renderCurrent() {
+  const flagged = getFlaggedLines();
+  // Silenced by hush/panic and nothing flagged → keep the score blank; do NOT
+  // fall back to the scratch pattern (the play clock would otherwise re-render it).
+  if (scoreSilenced && flagged.length === 0) { blankScore(); scheduleGraphicRender(); return; }
   // Played-staff mode always goes through renderLivePattern — its source is
   // the OSC event store, not the flagged lines or the scratch box.
   if (document.getElementById('staffSourceOpt').value === 'played') {
@@ -3004,10 +3008,23 @@ function renderCurrent() {
     scheduleGraphicRender();
     return;
   }
-  const flagged = getFlaggedLines();
   if (flagged.length > 0) renderLivePattern();
   else if (document.getElementById('patInput').value.trim()) renderPattern();
   scheduleGraphicRender();
+}
+
+// Clear the staff to a "silenced" placeholder (used after hush/panic).
+function blankScore() {
+  document.getElementById('scoreArea').innerHTML =
+    '<div class="placeholder"><span class="big">𝄞</span>Silenced — evaluate a pattern to resume</div>';
+  document.getElementById('eventDetails').style.display = 'none';
+  document.getElementById('meiDetails').style.display = 'none';
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = 'Silenced (hush) — evaluate a pattern to resume';
+  statusEl.className = 'render-status';
+  document.getElementById('patternLabel').textContent = '';
+  document.getElementById('scoreTitle').textContent = `silenced · cycle ${playback.cycleIndex}`;
+  renderTimeline([], parseInt(document.getElementById('cyclesOpt').value), playback.windowStart);
 }
 
 function playStart() {
@@ -3063,6 +3080,8 @@ function renderPattern() {
 
   if (!vrvToolkit) { statusEl.textContent = 'Verovio not yet loaded…'; statusEl.className = 'render-status'; return; }
   if (!patInput)   { statusEl.textContent = 'Please enter a pattern'; statusEl.className = 'render-status err'; return; }
+  // Manually rendering the scratch box is an explicit "show me this" — lift silence.
+  scoreSilenced = false;
 
   try {
     const events = evalPattern(patInput, cycles, playback.windowStart);
@@ -3448,6 +3467,13 @@ function renderGraphic() {
   const panel = document.getElementById('graphicPanel');
   if (panel.style.display === 'none') return;
   const area = document.getElementById('graphicArea');
+  // Silenced by hush/panic and nothing flagged → blank, don't fall back to the
+  // scratch pattern or lingering events.
+  if (scoreSilenced && !getFlaggedLines().length) {
+    area.innerHTML = '<span class="hint">Silenced — evaluate a pattern to resume.</span>';
+    document.getElementById('graphicSourceLabel').textContent = '';
+    return;
+  }
   const numCycles = parseInt(document.getElementById('cyclesOpt').value);
   const start = playback.cycleIndex;
 
@@ -3910,6 +3936,66 @@ function clearInactiveSourceLines(activeLines) {
   }
 }
 
+// Which specific line is currently ACTIVE for each orbit (the one the performer
+// last evaluated). Lets us pick the right line when an orbit appears on several
+// lines, and remember mutes across plain typing (which sends no evaluated line).
+const activeLineByOrbit = {};
+
+// After a `hush` / Cmd+. panic the performer wants a BLANK score — nothing in the
+// staff or graphic — until they evaluate a pattern again. While this is true the
+// scratch-pattern fallback (patInput) is suppressed; a real pattern evaluation, or
+// manually re-rendering the scratch box, lifts it. See renderCurrent/renderGraphic.
+let scoreSilenced = false;
+
+function orbitOfLine(text) {
+  const m = String(text).trim().match(/^_?(d\d+)\b/);
+  return m ? m[1] : null;
+}
+
+// A line that turns an orbit OFF: `_dN …` (BootTidal force-mute), `dN silence`,
+// or a bare `hush` (all orbits).
+function isMuteLine(text) {
+  const s = String(text).trim();
+  return /^hush\b/.test(s) || /^_d\d+\b/.test(s) || /\bd\d+\b\s*(?:\$\s*)?silence\b/.test(s);
+}
+
+// Collapse the buffer to ONE line per orbit, keeping only what the performer
+// actually evaluated. Returns { resolvedSource, preserve }:
+//  - evaluated orbit, active line still present → show that line.
+//  - evaluated orbit, active line is a mute (`_dN`/`silence`/`hush`) → clear it.
+//  - evaluated orbit, active line GONE (retargeted/deleted):
+//      · on an EVALUATE update → clear it (don't surface another line).
+//      · on a TYPING update → `preserve` it (mid-edit; leave the staff as-is).
+//  - never-evaluated orbit → last-in-buffer (keeps connect/@score/first-load).
+// Non-orbit lines (setcps, `all $ …`, …) pass through untouched.
+function resolveActiveOrbitLines(src, isEvaluation) {
+  const lines = src.split(/\r?\n/);
+  const byOrbit = new Map();
+  for (const l of lines) {
+    const o = orbitOfLine(l);
+    if (o) { if (!byOrbit.has(o)) byOrbit.set(o, []); byOrbit.get(o).push(l); }
+  }
+  const keep = new Set();
+  const preserve = new Set();
+  const orbits = new Set([...byOrbit.keys(), ...Object.keys(activeLineByOrbit)]);
+  for (const orbit of orbits) {
+    const arr = byOrbit.get(orbit) || [];
+    const active = activeLineByOrbit[orbit];
+    if (active) {
+      if (isMuteLine(active)) continue;                     // muted → clear
+      const pick = arr.find(l => l.trim() === active.trim());
+      if (pick) keep.add(pick);                             // active line present → show it
+      else if (!isEvaluation) preserve.add(orbit);          // mid-edit → leave as-is
+      // else (evaluate + active gone) → clear (retarget/delete)
+    } else {
+      const pick = arr[arr.length - 1];                     // never evaluated → last in file
+      if (pick && !isMuteLine(pick)) keep.add(pick);
+    }
+  }
+  const resolvedSource = lines.map(l => (orbitOfLine(l) ? (keep.has(l) ? l : '') : l)).join('\n');
+  return { resolvedSource, preserve };
+}
+
 function handleBridgeMessage(message) {
   if (!message || !message.type) return;
   const bridgeStatusEl = document.getElementById('bridgeStatus');
@@ -3921,7 +4007,7 @@ function handleBridgeMessage(message) {
 
   if (message.type === 'source-update' && typeof message.source === 'string') {
     const activeSource = stripTidalComments(message.source);
-    const sourceForRegex = joinTidalContinuationLines(activeSource);
+    let sourceForRegex = joinTidalContinuationLines(activeSource);
     // Matches both `setcps (135/60/4)` and bare `setcps 0.55`; `setbpm 120`
     // is converted through Tidal's 4-beats-per-cycle convention.
     const cpsM = activeSource.match(/setcps\s*\(([^)]+)\)/) ||
@@ -3947,6 +4033,31 @@ function handleBridgeMessage(message) {
       if (playback.playing) { playStop(); playStart(); }
     }
     markBridgeUpdate();
+
+    // An evaluation carries the evaluated line's text; plain typing doesn't.
+    const isEvaluation = !!message.selectedLineText;
+    // Remember what the performer just evaluated. `hush` mutes every orbit in the
+    // buffer. On plain typing nothing here changes, so the active line persists.
+    if (isEvaluation) {
+      const t = message.selectedLineText.trim();
+      if (/^hush\b/.test(t)) {
+        for (const l of sourceForRegex.split(/\r?\n/)) {
+          const o = orbitOfLine(l);
+          if (o) activeLineByOrbit[o] = 'hush';
+        }
+        // Panic/hush: blank everything (staff + graphic) until the next pattern.
+        scoreSilenced = true;
+        liveEvents.byCycle.clear();
+      } else {
+        const o = orbitOfLine(t);
+        if (o) activeLineByOrbit[o] = t;
+        // Evaluating a real (non-mute) pattern resumes the score.
+        if (o && !isMuteLine(t)) scoreSilenced = false;
+      }
+    }
+    // Collapse to the active line per orbit before the pattern regexes run.
+    const resolved = resolveActiveOrbitLines(sourceForRegex, isEvaluation);
+    sourceForRegex = resolved.resolvedSource;
 
     const allM = sourceForRegex.match(ALL_LINE_RE);
     allChain = allM ? parseChain(allM[1]) : [];
@@ -4062,6 +4173,9 @@ function handleBridgeMessage(message) {
         sourceManaged: true
       });
     }
+    // Orbits mid-edit (active line's text momentarily gone during typing) keep
+    // their current staff — don't clear them.
+    for (const o of resolved.preserve) activeLines.add(o);
     clearInactiveSourceLines(activeLines);
     scheduleLiveRender();
     return;

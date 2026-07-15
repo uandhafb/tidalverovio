@@ -61,7 +61,8 @@ const server = http.createServer(async (req, res) => {
       const message = {
         type: "source-update",
         source: String(body.source || ""),
-        selectedLine: body.selectedLine || body.line || ""
+        selectedLine: body.selectedLine || body.line || "",
+        selectedLineText: String(body.selectedLineText || "")
       };
       broadcast(message);
       writeJson(res, 200, { ok: true, sent: { type: message.type, selectedLine: message.selectedLine } });
