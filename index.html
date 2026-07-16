@@ -2772,6 +2772,12 @@ function distortWord(v) {
   if (!Number.isFinite(a) || a <= 0) return null;
   return a >= 0.7 ? 'harsh' : a >= 0.4 ? 'crunchy' : 'gritty';
 }
+// crush (bit-crush) quality word — 1 = drastic reduction (crunchiest) … 16 = mild.
+function crushWord(v) {
+  const c = parseFloat(v);
+  if (!Number.isFinite(c)) return 'crunchy';
+  return c <= 3 ? 'crunchy' : c <= 8 ? 'gritty' : 'lo-fi';
+}
 const VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
 
 // name → how to notate it. Anything not listed → a plain text marker (`<dir>`).
@@ -2783,7 +2789,7 @@ const CONTROL_NOTATION = {
   gain:    { kind: 'dynam', map: gainToDynam },
   amp:     { kind: 'dynam', map: gainToDynam },
   legato:  { kind: 'artic', map: legatoToArtic },
-  crush:   { kind: 'artic', map: crushToArtic, heading: 'crush' },     // accent + top heading
+  crush:   { kind: 'artic', map: crushToArtic, heading: crushWord },   // accent + crunch-word heading
   distort: { kind: 'artic', map: amountToArtic, heading: distortWord },// accent + quality-word heading
   krush:   { kind: 'dynam', map: gainToDynam },   // dry/wet → loudness (overrides gain, see below)
   vowel:   { kind: 'vowel' },
@@ -2802,6 +2808,7 @@ const CONTROL_NOTATION = {
 function resolveControlExpr(expr, cycleIndex, tLocal) {
   let s = String(expr).trim();
   while (/^\(.*\)$/.test(s)) s = s.slice(1, -1).trim();      // strip outer parens
+  s = s.replace(/^\$\s*/, '');                                // Haskell `$ saw` → `saw`
   if (s === '') return null;
   if (/^-?\d*\.?\d+$/.test(s)) return parseFloat(s);          // bare number
 
@@ -2827,16 +2834,37 @@ function resolveControlExpr(expr, cycleIndex, tLocal) {
     return items[Math.min(items.length - 1, Math.floor(unit * items.length))];
   }
   if (s === 'rand' || s === 'perlin') return unit;
+  // Deterministic ramp signals — a function of the note's cycle position (0..1),
+  // known without playback, so a `range … saw` gain can draw a hairpin at rest.
+  if (s === 'saw')  return tLocal;
+  if (s === 'isaw') return 1 - tLocal;
+  if (s === 'sine') return (Math.sin(2 * Math.PI * tLocal) + 1) / 2;
+  if (s === 'tri')  return tLocal < 0.5 ? 2 * tLocal : 2 - 2 * tLocal;
   return null;
 }
 
-// A gain/amp control driven by a random SIGNAL (`rand`/`range …`/`choose …`/`segment`),
-// not a fixed number or a written pattern. Its true per-note value only exists at
-// playback, so we read it from the OSC events instead of guessing.
+// A gain/amp control driven by a RANDOM signal (`rand`/`perlin`/`choose`). Its true
+// per-note value only exists at playback, so we read it from the OSC events.
 function isGainModulator(ctrl) {
   return (ctrl.name === 'gain' || ctrl.name === 'amp')
     && ctrl.value !== undefined
-    && !/^-?\d*\.?\d+$/.test(String(ctrl.value).trim());
+    && /\b(rand|perlin|choose)\b/.test(String(ctrl.value));
+}
+// A gain/amp control driven by a DETERMINISTIC signal (`saw`/`isaw`/`sine`/`tri`) — its
+// values are known from the note's position, so it resolves at rest (no live events).
+function isRampGain(ctrl) {
+  return (ctrl.name === 'gain' || ctrl.name === 'amp')
+    && ctrl.value !== undefined
+    && /\b(saw|isaw|sine|tri)\b/.test(String(ctrl.value));
+}
+// Of those, only saw/isaw are MONOTONIC ramps. They're sampled by note index so the
+// hairpin lands exactly on the range endpoints. Oscillators (sine/tri) must be sampled
+// at their real note times instead — index-sampling would read the wave at wrong points
+// and distort it.
+function isLinearRampGain(ctrl) {
+  return (ctrl.name === 'gain' || ctrl.name === 'amp')
+    && ctrl.value !== undefined
+    && /\b(saw|isaw)\b/.test(String(ctrl.value));
 }
 
 // The value of a control at a note's onset: scalar → itself; signal expression →
@@ -2877,22 +2905,23 @@ function controlsToMEI(controls, cycleIndex, tLocal, startid, skipGain = false) 
     const reg = CONTROL_NOTATION[ctrl.name];
     const kind = reg ? reg.kind : 'dir';
     if (kind === 'dynam') {
-      // `skipGain` suppresses only gain/amp dynamics (crescendo run, or overridden by
-      // krush) — krush's own dynamic is never skipped.
+      // `skipGain` suppresses gain/amp dynamics (crescendo run / read from live events).
       if (skipGain && (ctrl.name === 'gain' || ctrl.name === 'amp')) continue;
+      // Gain wins the dynamics slot: a krush dynamic is dropped when the line has gain.
+      if (ctrl.name === 'krush' && controls.some(c => c.name === 'gain' || c.name === 'amp')) continue;
       const d = reg.map(raw);
       if (d) events.push(`<dynam startid="#${startid}" place="below">${d}</dynam>`);
     } else if (kind === 'artic') {
       const a = reg.map(raw);
       if (a) artics.push(a);
-      // Name the effect once, as a heading above the staff (not per note).
-      if (reg.heading) { const h = typeof reg.heading === 'function' ? reg.heading(raw) : reg.heading; if (h) headings.push(h); }
+      // Name the effect once (deduped by control), as a heading above the staff.
+      if (reg.heading) { const h = typeof reg.heading === 'function' ? reg.heading(raw) : reg.heading; if (h) headings.push({ key: ctrl.name, word: h }); }
     } else if (kind === 'tremolo') {
       tremolo = true;
     } else if (kind === 'vowel') {
       // "speech" technique heading once; the vowel letter under each note.
       const v = String(raw).toLowerCase();
-      if (VOWELS.has(v)) { headings.push('speech'); events.push(`<dir startid="#${startid}" place="below">${v}</dir>`); }
+      if (VOWELS.has(v)) { headings.push({ key: 'vowel', word: 'speech' }); events.push(`<dir startid="#${startid}" place="below">${v}</dir>`); }
     } else {
       events.push(`<dir startid="#${startid}" place="above">${xmlEscape(`${ctrl.name} ${raw}`.trim())}</dir>`);
     }
@@ -2903,18 +2932,20 @@ function controlsToMEI(controls, cycleIndex, tLocal, startid, skipGain = false) 
 // A gain ramp reads as a hairpin, not a row of dynamics. Given a measure's notes for
 // one pattern (sorted by onset, each `{id, gain:number}`), return maximal runs whose
 // gain strictly rises ('cres') or falls ('dim') across ≥3 notes. Equal or reversed
-// steps break a run. Notes with a non-finite gain break runs too.
+// steps break a run. An EPS tolerance treats near-equal values as equal, so a
+// symmetric oscillator (tri: 0.567 vs 0.567±fp) doesn't form a phantom run/hairpin.
 function monotonicGainRuns(notes) {
+  const EPS = 1e-6;
   const runs = [];
   let i = 0;
   while (i < notes.length - 1) {
     const a = notes[i].gain, b = notes[i + 1].gain;
-    if (!Number.isFinite(a) || !Number.isFinite(b) || b === a) { i++; continue; }
+    if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(b - a) <= EPS) { i++; continue; }
     const dir = b > a ? 'cres' : 'dim';
     let j = i + 1;
     while (j < notes.length - 1) {
       const c = notes[j].gain, d = notes[j + 1].gain;
-      if (!Number.isFinite(d) || (dir === 'cres' ? d <= c : d >= c)) break;
+      if (!Number.isFinite(d) || (dir === 'cres' ? d - c <= EPS : c - d <= EPS)) break;
       j++;
     }
     if (j - i + 1 >= 3) runs.push({ dir, notes: notes.slice(i, j + 1) });
@@ -3021,22 +3052,34 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
     // each pattern's notes per measure, find runs, emit the hairpin, and remember the
     // intermediate notes so only the run's endpoints keep a dynamic mark.
     const suppressGain = new Set();
+    const rampGainById = new Map();   // ramp gains: exact index-based value per note
     for (const p of patByOrbit.values()) {
       const gainCtrl = p.controls.find(c => c.name === 'gain' || c.name === 'amp');
-      // Hairpins are for a deliberate written ramp (`# gain "0.3 0.5 0.7"`). Skip
-      // scalar gain (no ramp) and modulator gain (`rand`/`range …` is random, not a
-      // crescendo — its varied dynamics stand alone).
-      if (!gainCtrl || gainCtrl.pattern === undefined) continue;
+      // Hairpins are for a deliberate ramp: a written pattern (`# gain "0.3 0.5 0.7"`)
+      // or a deterministic ramp signal (`# gain (range … saw)`). Skip scalar gain (no
+      // ramp) and random modulator gain (`rand` — varied, not a crescendo).
+      if (!gainCtrl || (gainCtrl.pattern === undefined && !isRampGain(gainCtrl))) continue;
+      const ramp = isRampGain(gainCtrl);              // saw/isaw/sine/tri → resolved at rest
+      const linear = isLinearRampGain(gainCtrl);      // saw/isaw only → index-sampled
       const byMeasure = new Map();
       for (const ln of liveNotes) {
         if (ln.rest || ln.orbit !== p.orbit || !ln.ids.length) continue;
         const cyc = Math.floor(ln.begin + 1e-9), mi = cyc - startCycle;
         if (mi < 0 || mi >= measureEls.length) continue;
         if (!byMeasure.has(mi)) byMeasure.set(mi, []);
-        byMeasure.get(mi).push({ id: ln.ids[0], t: ln.begin - cyc, gain: parseFloat(controlValueAt(gainCtrl, cyc, ln.begin - cyc)) });
+        byMeasure.get(mi).push({ id: ln.ids[0], t: ln.begin - cyc, cyc });
       }
       for (const [mi, notes] of byMeasure) {
         notes.sort((a, b) => a.t - b.t);
+        const N = notes.length;
+        notes.forEach((n, i) => {
+          // A monotonic ramp (saw/isaw) is sampled by note INDEX so the first note = range
+          // start and the last = range end EXACTLY. Oscillators (sine/tri) and written
+          // patterns sample at the note's real time, so their shape matches Tidal.
+          const pos = linear ? (N > 1 ? i / (N - 1) : 0) : n.t;
+          n.gain = parseFloat(controlValueAt(gainCtrl, n.cyc, pos));
+          if (ramp) rampGainById.set(n.id, n.gain);
+        });
         for (const run of monotonicGainRuns(notes)) {
           const first = run.notes[0].id, last = run.notes[run.notes.length - 1].id;
           measureEls[mi] = measureEls[mi].replace(
@@ -3055,12 +3098,17 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
       if (mi < 0 || mi >= measureEls.length) continue;
       const id = ln.ids[0];
       const t = ln.begin - cyc;
-      // krush (dry/wet) takes the dynamics slot — suppress gain/amp entirely when present.
-      const hasKrush = p.controls.some(c => c.name === 'krush');
       // Random gain modulator: draw the REAL loudness from the matching OSC event
       // (code can't predict it). No event yet → no mark; fills in as the cycle plays.
-      const hasGainMod = !hasKrush && p.controls.some(isGainModulator);
-      const { events, artics, tremolo, headings } = controlsToMEI(p.controls, cyc, t, id, suppressGain.has(id) || hasGainMod || hasKrush);
+      const hasGainMod = p.controls.some(isGainModulator);
+      const hasRampGain = p.controls.some(isRampGain);
+      const { events, artics, tremolo, headings } = controlsToMEI(p.controls, cyc, t, id, suppressGain.has(id) || hasGainMod || hasRampGain);
+      // Ramp gain: emit the exact index-based value (endpoints land on range start/end);
+      // hairpin-suppressed middle notes carry no mark.
+      if (hasRampGain && !suppressGain.has(id) && rampGainById.has(id)) {
+        const d = gainToDynam(rampGainById.get(id));
+        if (d) events.push(`<dynam startid="#${id}" place="below">${d}</dynam>`);
+      }
       if (hasGainMod) {
         const evs = (liveEvents.byCycle.get(cyc) || []).filter(e => e.orbit === ln.orbit && e.gain !== null);
         let best = null, bestDist = 0.02;
@@ -3068,24 +3116,26 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
         const dyn = best ? gainToDynam(best.gain) : null;
         if (dyn) events.push(`<dynam startid="#${id}" place="below">${dyn}</dynam>`);
       }
-      // Technique heading — once per measure+orbit, above the FIRST note that carries it.
-      for (const word of headings) {
-        const key = mi + ':' + ln.orbit + ':' + word;
-        if (headingSeen.has(key)) continue;
-        headingSeen.add(key);
+      // Technique heading — once per measure+orbit+CONTROL, above the first note that
+      // carries it (so a crush pattern with varied values still shows one word).
+      for (const { key, word } of headings) {
+        const dkey = mi + ':' + ln.orbit + ':' + key;
+        if (headingSeen.has(dkey)) continue;
+        headingSeen.add(dkey);
         events.push(`<dir startid="#${id}" place="above">${xmlEscape(word)}</dir>`);
       }
       if (events.length)
         measureEls[mi] = measureEls[mi].replace(
           /\n      <\/measure>$/, `\n        ${events.join('\n        ')}\n      </measure>`);
-      // Articulations nest inside the note (<note …><artic…/></note>) and tremolo
-      // wraps it (<bTrem>…</bTrem>) — Verovio ignores these as standalone events.
+      // Articulations nest inside the note (<note …><artic…/></note>). Tremolo adds
+      // `stem.mod="3slash"` to the note tag — draws the slashes on any duration (a
+      // <bTrem num.visible> hides them on half notes) with no measured-tremolo digit.
       if (artics.length || tremolo)
         measureEls[mi] = measureEls[mi].replace(new RegExp(`<note xml:id="${id}"[^>]*?/>`), (noteEl) => {
-          let el = artics.length
-            ? noteEl.replace(/\/>$/, `>${artics.map(a => `<artic artic="${a}"/>`).join('')}</note>`)
-            : noteEl;
-          return tremolo ? `<bTrem num="3">${el}</bTrem>` : el;
+          let el = tremolo ? noteEl.replace(/^<note /, '<note stem.mod="3slash" ') : noteEl;
+          return artics.length
+            ? el.replace(/\/>$/, `>${artics.map(a => `<artic artic="${a}"/>`).join('')}</note>`)
+            : el;
         });
     }
   }
