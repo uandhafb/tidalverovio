@@ -2691,12 +2691,9 @@ function eventsToElements(events) {
 
 // ─── Control-effect markers ───────────────────────────────────────────────────
 // Tidal controls after the pattern (`# gain "0.4 1"`, `# crush 4`, `# legato 0.5`)
-// describe how the notes SOUND. We render them on the staff: where a musical symbol
-// exists we use it (gain→dynamics, legato→staccato/tenuto); otherwise a text label.
-
-function xmlEscape(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+// describe how the notes SOUND. We notate the ones with a true musical equivalent
+// (gain→dynamics, legato→staccato/tenuto, tremolo→stem slashes); any other control is
+// left off the staff rather than spelled out in text.
 
 // These `# name` are SELECTORS (sample / pitch), not effects — never a marker.
 const CONTROL_SKIP = new Set(['sound', 's', 'note', 'n']);
@@ -2750,49 +2747,13 @@ function legatoToArtic(v) {
   if (l > 1.1) return 'ten';
   return null;
 }
-// crush: 1 = drastic bit-reduction (harshest) … 16 = barely any. Harsh →
-// staccatissimo wedge (sharp/hammered), moderate → marcato (^), mild → no mark.
-// (Verovio doesn't render the compound `marc-stacc`, so we use `stacciss`.)
-function crushToArtic(v) {
-  const c = parseFloat(v);
-  if (!Number.isFinite(c)) return 'marc';
-  if (c <= 3) return 'stacciss';
-  if (c <= 8) return 'marc';
-  return null;
-}
-// distort: 0..1, higher = harsher → staccatissimo, low → marcato.
-function amountToArtic(v) {
-  const a = parseFloat(v);
-  if (!Number.isFinite(a) || a <= 0) return null;
-  return a >= 0.5 ? 'stacciss' : 'marc';
-}
-// distort quality word by amount — a crunchy/ugly timbre has no exact symbol.
-function distortWord(v) {
-  const a = parseFloat(v);
-  if (!Number.isFinite(a) || a <= 0) return null;
-  return a >= 0.7 ? 'harsh' : a >= 0.4 ? 'crunchy' : 'gritty';
-}
-// crush (bit-crush) quality word — 1 = drastic reduction (crunchiest) … 16 = mild.
-function crushWord(v) {
-  const c = parseFloat(v);
-  if (!Number.isFinite(c)) return 'crunchy';
-  return c <= 3 ? 'crunchy' : c <= 8 ? 'gritty' : 'lo-fi';
-}
-const VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
-
-// name → how to notate it. Anything not listed → a plain text marker (`<dir>`).
+// name → how to notate it. A control not listed here is left OFF the staff.
 //  dynam  → dynamics below the note        artic → articulation nested in the note
-//  tremolo→ <bTrem> strokes wrapping note   vowel → italic "sing x" cue above
-//  an artic entry may carry `heading` (string or value→string) → a technique word
-//  shown ONCE above the staff at the left, not on every note.
+//  tremolo→ stem slashes on the note
 const CONTROL_NOTATION = {
   gain:    { kind: 'dynam', map: gainToDynam },
   amp:     { kind: 'dynam', map: gainToDynam },
   legato:  { kind: 'artic', map: legatoToArtic },
-  crush:   { kind: 'artic', map: crushToArtic, heading: crushWord },   // accent + crunch-word heading
-  distort: { kind: 'artic', map: amountToArtic, heading: distortWord },// accent + quality-word heading
-  krush:   { kind: 'dynam', map: gainToDynam },   // dry/wet → loudness (overrides gain, see below)
-  vowel:   { kind: 'vowel' },
   tremolo:      { kind: 'tremolo' },
   tremolodepth: { kind: 'tremolo' },
   tremdp:       { kind: 'tremolo' },
@@ -2891,42 +2852,32 @@ function controlValueAt(ctrl, cycleIndex, tLocal) {
 }
 
 // Markers for one note, split by how Verovio wants them:
-//  · events — measure-level control events attached by @startid (<dynam>, <dir>).
+//  · events — measure-level control events attached by @startid (<dynam>).
 //  · artics — articulation names that MUST be nested inside the <note> element
 //    (standalone <artic startid> is not rendered by this Verovio build).
+// Controls with no entry in CONTROL_NOTATION render nothing.
 function controlsToMEI(controls, cycleIndex, tLocal, startid, skipGain = false) {
-  const events = [];   // measure-level (dynam / dir)
+  const events = [];   // measure-level (dynam)
   const artics = [];   // nested in the note
-  const headings = []; // technique words shown once above the staff (deduped by caller)
-  let tremolo = false; // wraps the note in <bTrem>
+  let tremolo = false; // stem slashes on the note
   for (const ctrl of controls) {
+    const reg = CONTROL_NOTATION[ctrl.name];
+    if (!reg) continue;
     const raw = controlValueAt(ctrl, cycleIndex, tLocal);
     if (raw === null || raw === undefined || raw === '') continue;
-    const reg = CONTROL_NOTATION[ctrl.name];
-    const kind = reg ? reg.kind : 'dir';
-    if (kind === 'dynam') {
+    if (reg.kind === 'dynam') {
       // `skipGain` suppresses gain/amp dynamics (crescendo run / read from live events).
       if (skipGain && (ctrl.name === 'gain' || ctrl.name === 'amp')) continue;
-      // Gain wins the dynamics slot: a krush dynamic is dropped when the line has gain.
-      if (ctrl.name === 'krush' && controls.some(c => c.name === 'gain' || c.name === 'amp')) continue;
       const d = reg.map(raw);
       if (d) events.push(`<dynam startid="#${startid}" place="below">${d}</dynam>`);
-    } else if (kind === 'artic') {
+    } else if (reg.kind === 'artic') {
       const a = reg.map(raw);
       if (a) artics.push(a);
-      // Name the effect once (deduped by control), as a heading above the staff.
-      if (reg.heading) { const h = typeof reg.heading === 'function' ? reg.heading(raw) : reg.heading; if (h) headings.push({ key: ctrl.name, word: h }); }
-    } else if (kind === 'tremolo') {
+    } else if (reg.kind === 'tremolo') {
       tremolo = true;
-    } else if (kind === 'vowel') {
-      // "speech" technique heading once; the vowel letter under each note.
-      const v = String(raw).toLowerCase();
-      if (VOWELS.has(v)) { headings.push({ key: 'vowel', word: 'speech' }); events.push(`<dir startid="#${startid}" place="below">${v}</dir>`); }
-    } else {
-      events.push(`<dir startid="#${startid}" place="above">${xmlEscape(`${ctrl.name} ${raw}`.trim())}</dir>`);
     }
   }
-  return { events, artics, tremolo, headings };
+  return { events, artics, tremolo };
 }
 
 // A gain ramp reads as a hairpin, not a row of dynamics. Given a measure's notes for
@@ -3088,7 +3039,6 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
         }
       }
     }
-    const headingSeen = new Set();   // one technique word per measure+orbit
     for (const ln of liveNotes) {
       if (ln.rest || ln.orbit === null || ln.orbit === undefined) continue;
       const p = patByOrbit.get(ln.orbit);
@@ -3102,7 +3052,7 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
       // (code can't predict it). No event yet → no mark; fills in as the cycle plays.
       const hasGainMod = p.controls.some(isGainModulator);
       const hasRampGain = p.controls.some(isRampGain);
-      const { events, artics, tremolo, headings } = controlsToMEI(p.controls, cyc, t, id, suppressGain.has(id) || hasGainMod || hasRampGain);
+      const { events, artics, tremolo } = controlsToMEI(p.controls, cyc, t, id, suppressGain.has(id) || hasGainMod || hasRampGain);
       // Ramp gain: emit the exact index-based value (endpoints land on range start/end);
       // hairpin-suppressed middle notes carry no mark.
       if (hasRampGain && !suppressGain.has(id) && rampGainById.has(id)) {
@@ -3115,14 +3065,6 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
         for (const e of evs) { const d = Math.abs(e.begin - t); if (d < bestDist) { best = e; bestDist = d; } }
         const dyn = best ? gainToDynam(best.gain) : null;
         if (dyn) events.push(`<dynam startid="#${id}" place="below">${dyn}</dynam>`);
-      }
-      // Technique heading — once per measure+orbit+CONTROL, above the first note that
-      // carries it (so a crush pattern with varied values still shows one word).
-      for (const { key, word } of headings) {
-        const dkey = mi + ':' + ln.orbit + ':' + key;
-        if (headingSeen.has(dkey)) continue;
-        headingSeen.add(dkey);
-        events.push(`<dir startid="#${id}" place="above">${xmlEscape(word)}</dir>`);
       }
       if (events.length)
         measureEls[mi] = measureEls[mi].replace(
