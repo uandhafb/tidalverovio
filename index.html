@@ -830,23 +830,32 @@ function fractionFromFloat(x, maxDen = 384) {
 function isPow2(n) { return n > 0 && (n & (n - 1)) === 0; }
 function lowerPow2(n) { let p = 1; while (p * 2 <= n) p *= 2; return p; }
 
-// Bjorklund algorithm — distributes k pulses as evenly as possible over n steps,
-// rotated so the pattern starts with a hit (matching TidalCycles convention).
+// Bjorklund's algorithm — distributes k pulses as evenly as possible over n steps.
+// A direct port of Tidal's `Sound.Tidal.Bjorklund`, so the staff shows the same rhythm
+// Tidal plays (the reference set: (3,8) tresillo, (5,8) cinquillo, (5,16) Bossa-Nova…).
+// `xs` are the pulse groups, `ys` the remainder groups; each round folds the remainder
+// into the pulses and carries whatever is left over, until the remainder is 1 group.
+// The result always begins on a hit, so no rotation is applied.
 function euclidPattern(k, n) {
   if (k <= 0) return Array(n).fill(false);
   if (k >= n) return Array(n).fill(true);
-  let ones  = Array.from({length: k},     () => [true]);
-  let zeros = Array.from({length: n - k}, () => [false]);
-  while (zeros.length > 1 && ones.length > 0) {
-    const count = Math.min(ones.length, zeros.length);
-    const [shorter, longer] = ones.length <= zeros.length ? [ones, zeros] : [zeros, ones];
-    const merged = Array.from({length: count}, (_, i) => [...longer[i], ...shorter[i]]);
-    const remaining = longer.slice(count);
-    ones = merged; zeros = remaining;
+  let i = k, j = n - k;
+  let xs = Array.from({length: k},     () => [true]);
+  let ys = Array.from({length: n - k}, () => [false]);
+  while (Math.min(i, j) > 1) {
+    if (i > j) {                                     // more pulses than remainder
+      const head = xs.slice(0, j), tail = xs.slice(j);
+      xs = head.map((x, d) => [...x, ...ys[d]]);
+      ys = tail;
+      const ni = j; j = i - j; i = ni;
+    } else {                                         // more remainder than pulses
+      const head = ys.slice(0, i), tail = ys.slice(i);
+      xs = xs.map((x, d) => [...x, ...head[d]]);
+      ys = tail;
+      j = j - i;
+    }
   }
-  const flat = [...ones, ...zeros].flat();
-  const firstHit = flat.indexOf(true);
-  return firstHit > 0 ? [...flat.slice(firstHit), ...flat.slice(0, firstHit)] : flat;
+  return [...xs.flat(), ...ys.flat()];
 }
 
 // Resolves cycle-dependent node types at render time, returning both the
