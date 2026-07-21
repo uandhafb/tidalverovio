@@ -1001,10 +1001,6 @@ function applyProb(el, prob) {
   return el;
 }
 
-function applyProbToLayers(layers, prob) {
-  return layers.map(layer => layer.map(el => applyProb(el, prob)));
-}
-
 // Recursive descent parser. Returns { layers, pos }.
 // Top-level commas create parallel layers (each becomes a MEI <layer>).
 function parseTokens(tokens, pos, closeTok = null) {
@@ -1218,9 +1214,8 @@ function parseTokens(tokens, pos, closeTok = null) {
 const SUPPORTED_FNS = new Set([
   'rev', 'palindrome', 'fast', 'density', 'hurry', 'ply', 'every', "every'", 'foldEvery',
   'repeatCycles', 'jux', 'juxBy', 'superimpose', 'iter', "iter'", 'degradeBy', 'unDegradeBy',
-  'euclid', 'euclidInv', 'euclidOff', 'euclidFull', 'whenmod', 'rot', 'always', 'never', 'struct',
-  'mask', 'sew', 'stitch', 'sometimes', 'sometimesBy', 'someCycles', 'someCyclesBy',
-  'almostAlways', 'often', 'rarely', 'almostNever', 'choose', 'wchoose', 'cycleChoose',
+  'euclid', 'euclidInv', 'euclidOff', 'euclidFull', 'whenmod', 'rot', 'struct',
+  'mask', 'sew', 'stitch', 'inv', 'choose', 'wchoose', 'cycleChoose',
   'slow', 'sparsity', 'fastGap', 'densityGap', 'compress', 'zoom', 'within', 'off',
   'press', 'pressBy', 'swing', 'swingBy', 'scale', 'toScale', 'arp', 'arpg', 'arpeggiate',
   'rolled', 'rolledBy', 'layer'
@@ -1231,6 +1226,134 @@ function parseBoolPatternArg(text) {
   if (!pat) return null;
   try { return parseTokens(tokenise(pat), 0).layers[0]; }
   catch { return null; }
+}
+
+// N as k big-endian bits → ['t'/'f', …] (Tidal's binary is 8-bit, binaryN is k-bit).
+function toBits(n, k) {
+  const mod = Math.pow(2, k);
+  n = ((n % mod) + mod) % mod;
+  return n.toString(2).padStart(k, '0').split('').map(b => (b === '1' ? 't' : 'f'));
+}
+// necklace perCycle [i1,i2,…]: perCycle total steps; each interval n emits one hit then
+// n-1 rests; the interval list is CYCLED to fill perCycle steps and truncated (it need not
+// sum to perCycle). Tidal doc: necklace 12 [4,2] = "t f f f t f t f f f t f".
+function necklaceBits(perCycle, intervals) {
+  if (perCycle <= 0 || !intervals.length || intervals.every(x => x <= 0)) return null;
+  const bits = [];
+  let i = 0;
+  while (bits.length < perCycle) {
+    const n = intervals[i % intervals.length];
+    i++;
+    if (n <= 0) continue;
+    bits.push('t');
+    for (let j = 1; j < n && bits.length < perCycle; j++) bits.push('f');
+  }
+  return bits.slice(0, perCycle);
+}
+// necklace for a SPECIFIC cycle. When sum(intervals) ≠ perCycle, Tidal's
+// `_slow (sum/perCycle)` makes the pattern DRIFT every cycle: slot j of cycle N is a
+// hit iff ((N*perCycle + j) mod S) is a cumulative-interval start, S=sum(intervals).
+// (S==perCycle ⇒ no drift; S divides perCycle ⇒ repeats, no drift.) → ['t'/'f', …].
+function necklaceBitsForCycle(perCycle, intervals, cycleIndex) {
+  const S = intervals.reduce((a, b) => a + b, 0);
+  if (perCycle <= 0 || S <= 0) return null;
+  const offsets = new Set();
+  let acc = 0;
+  for (const iv of intervals) { offsets.add(acc); acc += iv; }
+  const bits = [];
+  for (let j = 0; j < perCycle; j++) {
+    const pos = (((cycleIndex * perCycle + j) % S) + S) % S;
+    bits.push(offsets.has(pos) ? 't' : 'f');
+  }
+  return bits;
+}
+// If an atom is a `necklace P [ints]` (drifting generator), return its spec so the
+// struct/mask render can recompute the boolean per cycle. Else null.
+function necklaceSpecOf(text) {
+  let a = String(text).trim();
+  while (isWrappedInParens(a)) a = a.slice(1, -1).trim();
+  const m = a.match(/^necklace\s+(\d+)\s+\[([\d,\s]+)\]$/);
+  if (!m) return null;
+  const intervals = m[2].split(',').map(s => parseInt(s.trim())).filter(x => !isNaN(x));
+  return intervals.length ? { kind: 'necklace', perCycle: parseInt(m[1]), intervals } : null;
+}
+// Boolean-pattern GENERATORS used inside struct/mask (like euclid): binary N (8-bit),
+// binaryN K N, ascii "chars" (8 bits per character), necklace N [gaps]. Returns a
+// mini-notation boolean string ("t f t …") to feed through tokenise/parseTokens, or null.
+function boolGeneratorString(genText) {
+  let m;
+  if ((m = genText.match(/^binary\s+(\d+)$/))) return toBits(parseInt(m[1]), 8).join(' ');
+  if ((m = genText.match(/^binaryN\s+(\d+)\s+(\d+)$/))) return toBits(parseInt(m[2]), parseInt(m[1])).join(' ');
+  if ((m = genText.match(/^ascii\s+"([^"]*)"$/))) {
+    const chars = m[1].split(/\s+/).join('').split('');   // mini-notation words → chars
+    if (!chars.length) return null;
+    return chars.map(c => toBits(c.charCodeAt(0), 8).join(' ')).join(' ');
+  }
+  if ((m = genText.match(/^necklace\s+(\d+)\s+\[([\d,\s]+)\]$/))) {
+    const intervals = m[2].split(',').map(s => parseInt(s.trim())).filter(x => !isNaN(x));
+    const bits = necklaceBits(parseInt(m[1]), intervals);
+    return bits ? bits.join(' ') : null;
+  }
+  return null;
+}
+
+// `inv` = COMPLEMENT of a boolean pattern: a sounding hit becomes a rest, and every
+// non-hit (false OR a euclid/hand gap `~`) becomes a hit. This matches what you HEAR —
+// `inv "t(3,8)"` is the 5-hit complement (like euclidInv), not silence. (Gap-free
+// patterns — binary/binaryN/ascii/necklace — are unaffected: every f flips to a hit
+// exactly as a simple t<->f swap would.) Walk the node tree and complement each leaf.
+function flipBoolValue(v) {
+  return (v === 't' || v === 'true' || v === '1') ? '~' : 't';
+}
+function flipBoolNode(node) {
+  if (!node || typeof node !== 'object') return node;
+  const out = { ...node };
+  if (out.type === 'leaf' && typeof out.value === 'string') out.value = flipBoolValue(out.value);
+  if (Array.isArray(out.children)) out.children = out.children.map(flipBoolNode);
+  return out;
+}
+// True if s is a single balanced ( … ) pair wrapping its whole content.
+function isWrappedInParens(s) {
+  if (s[0] !== '(' || s[s.length - 1] !== ')') return false;
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth++;
+    else if (s[i] === ')') { depth--; if (depth === 0 && i < s.length - 1) return false; }
+  }
+  return depth === 0;
+}
+// Resolve a bare boolean ATOM — a generator (binary/binaryN/ascii/necklace) or a
+// quoted "t f t" pattern, with optional grouping parens — to a bool layer, or null.
+function boolAtomLayer(text) {
+  let a = String(text).trim();
+  while (isWrappedInParens(a)) a = a.slice(1, -1).trim();
+  const gen = boolGeneratorString(a);
+  if (gen) { try { return parseTokens(tokenise(gen), 0).layers[0]; } catch { return null; } }
+  const qM = a.match(/^"([^"]+)"$/);
+  if (qM) { try { return parseTokens(tokenise(qM[1]), 0).layers[0]; } catch { return null; } }
+  return null;
+}
+// Resolve a struct/mask boolean ARGUMENT into { bool, chain }: a base boolean atom
+// plus a per-cycle transform chain (inv, every N inv, rev, …). null if we can't
+// notate it. The atom is the TRAILING generator/quoted pattern; anything before it
+// is a transform chain applied to the boolean each cycle (via applyChain at render).
+function resolveBoolArg(arg) {
+  let a = String(arg).trim();
+  while (isWrappedInParens(a)) a = a.slice(1, -1).trim();
+  const whole = boolAtomLayer(a);
+  if (whole) return { bool: whole, chain: [], gen: necklaceSpecOf(a) };
+  // LEADING transform expression + TRAILING boolean atom. Peel a trailing generator
+  // first (so `ascii "x"` isn't mis-split at its quote), else a trailing quoted pattern.
+  const genRe = /^([\s\S]*?)\s*(\(?\s*(?:binary\s+\d+|binaryN\s+\d+\s+\d+|ascii\s+"[^"]*"|necklace\s+\d+\s+\[[\d,\s]+\])\s*\)?)$/;
+  let m = a.match(genRe);
+  if (!m) m = a.match(/^([\s\S]*?)\s*((?:\(\s*)?"[^"]+"(?:\s*\))?)$/);
+  if (!m) return null;
+  const leading = m[1].trim();
+  const base = boolAtomLayer(m[2]);
+  if (!base || !leading) return null;
+  const chain = parseChain(leading);
+  if (!chain.length || chain.some(c => c.fn === '?')) return null;
+  return { bool: base, chain, gen: necklaceSpecOf(m[2]) };
 }
 
 function parseChoiceItems(text) {
@@ -1258,34 +1381,20 @@ function choicesToAlt(items, weighted = false) {
   return [{ type: 'alt', alternatives, weight: 1, random: true }];
 }
 
-const PROB_ALIASES = {
-  sometimes: 0.5,
-  often: 0.75,
-  rarely: 0.25,
-  almostAlways: 0.9,
-  almostNever: 0.1,
-  someCycles: 0.5
-};
-
 // One segment ("every 4 rev") → descriptor {fn, n?, inner?} or {fn:'?', raw}.
 // Parentheses act as grouping only, so "every 2 (jux rev)" parses like
 // "every 2 jux rev".
 function parseChainSegment(seg) {
-  // struct carries a quoted boolean pattern — grab it before word-splitting
-  const structM = seg.trim().match(/^struct\s+"([^"]+)"$/);
-  if (structM) {
-    try {
-      const bool = parseTokens(tokenise(structM[1]), 0).layers[0];
-      return { fn: 'struct', bool, raw: seg.trim() };
-    } catch { return { fn: '?', raw: seg.trim() }; }
-  }
-
-  const maskM = seg.trim().match(/^mask\s+"([^"]+)"$/);
-  if (maskM) {
-    try {
-      const bool = parseTokens(tokenise(maskM[1]), 0).layers[0];
-      return { fn: 'mask', bool, raw: seg.trim() };
-    } catch { return { fn: '?', raw: seg.trim() }; }
+  // struct/mask take a boolean-pattern argument before word-splitting: a quoted
+  // pattern ("t f t"), a generator (binary/binaryN/ascii/necklace), or a transform
+  // chain wrapping either (inv, every N inv, rev …) — grouping parens allowed. The
+  // chain (if any) is applied to the boolean each cycle at render time. Anything we
+  // can't parse → resolveBoolArg returns null → grey ?.
+  const smM = seg.trim().match(/^(struct|mask)\s+([\s\S]+)$/);
+  if (smM) {
+    const r = resolveBoolArg(smM[2]);
+    if (r) return { fn: smM[1], bool: r.bool, boolChain: r.chain, gen: r.gen || null, raw: seg.trim() };
+    return { fn: '?', raw: seg.trim() };
   }
 
   const sewM = seg.trim().match(/^(sew|stitch)\s+"([^"]+)"\s+"([^"]+)"$/);
@@ -1370,12 +1479,8 @@ function parseChainSegment(seg) {
   if (!SUPPORTED_FNS.has(head)) return { fn: '?', raw: seg.trim() };
 
   if (head === 'rev' || head === 'palindrome') return { fn: head, raw: seg.trim() };
-  if (head === 'always') {
-    const inner = parseChainSegment(rest.join(' '));
-    if (!inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
-    return { ...inner, raw: seg.trim() };
-  }
-  if (head === 'never') return { fn: 'never', raw: seg.trim() };
+  // inv flips a boolean pattern (t<->f); used as a struct/mask arg transform.
+  if (head === 'inv') return { fn: 'inv', raw: seg.trim() };
 
   if (head === 'superimpose') {
     const inner = parseChainSegment(rest.join(' '));
@@ -1481,19 +1586,6 @@ function parseChainSegment(seg) {
     const x = parseFloat(rest[0]);
     if (!(x >= 0 && x <= 1)) return { fn: '?', raw: seg.trim() };
     return { fn: head, n: x, raw: seg.trim() };
-  }
-
-  if (head === 'sometimesBy' || head === 'someCyclesBy') {
-    const p = parseFloat(rest[0]);
-    const inner = parseChainSegment(rest.slice(1).join(' '));
-    if (!(p >= 0 && p <= 1) || !inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
-    return { fn: 'probTransform', prob: p, inner, raw: seg.trim() };
-  }
-
-  if (PROB_ALIASES[head] !== undefined) {
-    const inner = parseChainSegment(rest.join(' '));
-    if (!inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
-    return { fn: 'probTransform', prob: PROB_ALIASES[head], inner, raw: seg.trim() };
   }
 
   if (head === 'every') {
@@ -1626,6 +1718,37 @@ function valueAtPosition(events, p) {
   return v;
 }
 
+// The whole base event sounding at position p (or null) — lets struct/mask carry a
+// sampled note's degrade probability (`?`) so a `d5?0.2` stays grey instead of solid.
+function eventAtPosition(events, p) {
+  for (const e of events) {
+    if (e.begin.toFloat() <= p + 1e-9 && p < e.end.toFloat() - 1e-9) return e;
+  }
+  let last = null;
+  for (const e of events) if (e.begin.toFloat() <= p + 1e-9) last = e;
+  return last;
+}
+// A struct/mask leaf carrying the sampled value AND its degrade prob (<1 → grey).
+function sampledLeaf(events, p, weight) {
+  const ev = eventAtPosition(events, p);
+  const leaf = { type: 'leaf', value: ev ? ev.value : '~', weight };
+  if (ev && ev.prob !== undefined && ev.prob < 1) leaf.prob = ev.prob;
+  return leaf;
+}
+
+// The boolean layer a struct/mask uses THIS cycle: a drifting `necklace`
+// (t.gen) is recomputed for cycleIndex; then any per-cycle chain (inv, every N …)
+// is applied. Non-necklace args just use the static t.bool.
+function structBoolForCycle(t, cycleIndex) {
+  let bool = t.bool;
+  if (t.gen && t.gen.kind === 'necklace') {
+    const bits = necklaceBitsForCycle(t.gen.perCycle, t.gen.intervals, cycleIndex);
+    if (bits) { try { bool = parseTokens(tokenise(bits.join(' ')), 0).layers[0]; } catch { /* keep t.bool */ } }
+  }
+  if (t.boolChain && t.boolChain.length) bool = applyChain([bool], t.boolChain, cycleIndex)[0];
+  return bool;
+}
+
 // struct: clone the boolean tree, filling truthy leaves with the base
 // pattern's value at that time position, falsy leaves with rests. The
 // boolean pattern's structure (groups, tuplets) becomes the notation.
@@ -1638,11 +1761,9 @@ function structApply(boolEls, events, offset, length, cycleIndex) {
     const { el, c } = resolveNode(raw, cycleIndex);
     if (el.type === 'leaf') {
       const truthy = el.value === 't' || el.value === 'true' || el.value === '1';
-      out.push({
-        type: 'leaf',
-        value: truthy ? valueAtPosition(events, cursor.toFloat()) : '~',
-        weight: raw.weight
-      });
+      out.push(truthy
+        ? sampledLeaf(events, cursor.toFloat(), raw.weight)
+        : { type: 'leaf', value: '~', weight: raw.weight });
     } else {
       out.push({ type: 'group', children: structApply(el.children, events, cursor, elLen, c), weight: raw.weight });
     }
@@ -1660,11 +1781,7 @@ function selectApply(boolEls, trueEvents, falseEvents, offset, length, cycleInde
     const { el, c } = resolveNode(raw, cycleIndex);
     if (el.type === 'leaf') {
       const truthy = el.value === 't' || el.value === 'true' || el.value === '1';
-      out.push({
-        type: 'leaf',
-        value: valueAtPosition(truthy ? trueEvents : falseEvents, cursor.toFloat()),
-        weight: raw.weight
-      });
+      out.push(sampledLeaf(truthy ? trueEvents : falseEvents, cursor.toFloat(), raw.weight));
     } else {
       out.push({
         type: 'group',
@@ -1686,11 +1803,9 @@ function maskApply(boolEls, events, offset, length, cycleIndex) {
     const { el, c } = resolveNode(raw, cycleIndex);
     if (el.type === 'leaf') {
       const truthy = el.value === 't' || el.value === 'true' || el.value === '1';
-      out.push({
-        type: 'leaf',
-        value: truthy ? valueAtPosition(events, cursor.toFloat()) : '~',
-        weight: raw.weight
-      });
+      out.push(truthy
+        ? sampledLeaf(events, cursor.toFloat(), raw.weight)
+        : { type: 'leaf', value: '~', weight: raw.weight });
     } else {
       out.push({ type: 'group', children: maskApply(el.children, events, cursor, elLen, c), weight: raw.weight });
     }
@@ -1859,7 +1974,9 @@ function applyTransform(elements, t, cycleIndex) {
     case 'unDegradeBy': return elements.map(el => applyProb(el, t.n));
     case "iter'":       return iterElements(elements, t.n, -cycleIndex);
     case 'rot':         return rotValues(elements, t.n);
-    case 'never':       return elements;
+    // inv: flip the boolean pattern's values (t<->f); gaps stay gaps. Used per cycle
+    // on a struct/mask argument (e.g. `every 3 inv "…"`).
+    case 'inv':         return elements.map(flipBoolNode);
     case 'euclid':
     case 'euclidInv':
     case 'euclidOff': {
@@ -1891,11 +2008,11 @@ function applyTransform(elements, t, cycleIndex) {
     }
     case 'struct': {
       const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
-      return structApply(t.bool, events, new Fraction(0), new Fraction(1), cycleIndex);
+      return structApply(structBoolForCycle(t, cycleIndex), events, new Fraction(0), new Fraction(1), cycleIndex);
     }
     case 'mask': {
       const events = elementsToEvents(elements, new Fraction(0), new Fraction(1), cycleIndex);
-      return maskApply(t.bool, events, new Fraction(0), new Fraction(1), cycleIndex);
+      return maskApply(structBoolForCycle(t, cycleIndex), events, new Fraction(0), new Fraction(1), cycleIndex);
     }
     case 'sew':
     case 'stitch': {
@@ -1980,14 +2097,6 @@ function applyTransformLayers(layers, t, cycleIndex) {
   if (t.fn === 'whenmod')
     return ((cycleIndex % t.a) + t.a) % t.a >= t.b
       ? applyTransformLayers(layers, t.inner, cycleIndex) : layers;
-  if (t.fn === 'probTransform')
-    // Both possibilities visible: the base pattern in black (what is
-    // certain) plus the transformed version as a grey ghost voice shaded
-    // by its probability (what might happen).
-    return layers.flatMap(layer => [
-      layer,
-      ...applyProbToLayers(applyTransformLayers([layer], t.inner, cycleIndex), t.prob)
-    ]);
   if (t.fn === 'choose' || t.fn === 'wchoose' || t.fn === 'cycleChoose')
     return layers.map(() => choicesToAlt(t.items, t.fn === 'wchoose'));
   if (t.fn === 'within') {
@@ -2640,7 +2749,17 @@ function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIn
     if (resolved.type === 'leaf') {
       const prob = resolved.prob !== undefined ? resolved.prob : 1;
       const noteLen = elLen.mul(childScale);
-      const parts = noteOrRestXML(resolved.value, noteLen, mode, fixedPitch, stats, pitchInput, prob,
+      // Live overlay: a random stand-in (grey, prob<1) on a bridge line becomes the REAL
+      // pitch Tidal just played, if an OSC event landed at this onset — settling from grey
+      // guess to a solid note. `cursor` is ABSOLUTE (offset = the cycle number), so derive
+      // the real cycle + fractional begin to match `liveEvents` (stored per-cycle, 0..1).
+      let value = resolved.value, effProb = prob, effPitchInput = pitchInput;
+      if (prob < 1 && orbit !== null && orbit !== undefined) {
+        const pos = cursor.toFloat(), cyc = Math.floor(pos + 1e-9);
+        const live = liveEventValueAt(orbit, cyc, pos - cyc);
+        if (live !== null && live !== '~') { value = live; effProb = 1; effPitchInput = 'name'; }
+      }
+      const parts = noteOrRestXML(value, noteLen, mode, fixedPitch, stats, effPitchInput, effProb,
         { orbit, begin: cursor.toFloat(), dur: noteLen.toFloat() });
       if (parts) items.push(...parts);
     } else {
@@ -2869,6 +2988,16 @@ function approximatedSuffix(stats) {
 // what the audience hears, instead of a simulated tempo.
 const remoteClock = { cycle: 0, cps: 0, at: 0 };
 const liveEvents  = { byCycle: new Map(), lastAt: 0 };
+
+// The real pitch Tidal played at a given orbit/cycle/onset, or null. Used to overlay
+// actual played notes onto the typed staff's random stand-ins (choose/irand/randrun).
+function liveEventValueAt(orbit, cycle, beginFloat) {
+  const evs = liveEvents.byCycle.get(cycle);
+  if (!evs) return null;
+  for (const ev of evs)
+    if (ev.orbit === orbit && Math.abs(ev.begin - beginFloat) < 0.02) return ev.value;
+  return null;
+}
 
 function clockIsLive() { return remoteClock.at > 0 && performance.now() - remoteClock.at < 3000; }
 
@@ -3105,10 +3234,19 @@ function renderPattern() {
     document.getElementById('eventDetails').style.display = '';
     document.getElementById('meiDetails').style.display = '';
 
-    const { mei, stats } = patternToMEI(patInput, cycles, { clef, mode, pitchInput, startCycle: playback.windowStart });
+    let startCycle = playback.windowStart;
+    let { mei, stats } = patternToMEI(patInput, cycles, { clef, mode, pitchInput, startCycle });
+    // Same static-preview safeguard as the live staff: skip leading empty cycles so a
+    // pattern whose cycle 0 is silent (e.g. `every 3 inv …`) isn't shown blank.
+    if (!playback.playing && !/<note\b/.test(mei)) {
+      for (let look = 1; look <= 16; look++) {
+        const r = patternToMEI(patInput, cycles, { clef, mode, pitchInput, startCycle: playback.windowStart + look });
+        if (/<note\b/.test(r.mei)) { mei = r.mei; stats = r.stats; startCycle = playback.windowStart + look; break; }
+      }
+    }
     document.getElementById('meiPre').textContent = mei;
     renderToScoreArea(mei);
-    renderTimeline([{ label: null, src: patInput }], cycles, playback.windowStart);
+    renderTimeline([{ label: null, src: patInput }], cycles, startCycle);
     scheduleGraphicRender();
     updateCycleUI(null);
     document.getElementById('patternLabel').textContent = patInput;
@@ -3198,12 +3336,23 @@ function renderLivePattern() {
     const inferred = inferLiveRenderOptions(patterns, mode, pitchInput);
     mode = inferred.mode;
     pitchInput = inferred.pitchInput;
-    const { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle: playback.windowStart });
+    let startCycle = playback.windowStart;
+    let { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle });
+    // Static preview safeguard: if the shown window is empty (e.g. cycle 0 is the
+    // fired cycle of `every 3 inv …`, which can be silent), advance to the first
+    // non-empty cycle so the staff isn't blank. Never while playing — an empty cycle
+    // genuinely plays empty. The timeline still labels the real cycle index.
+    if (!playback.playing && !/<note\b/.test(mei)) {
+      for (let look = 1; look <= 16; look++) {
+        const r = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle: playback.windowStart + look });
+        if (/<note\b/.test(r.mei)) { mei = r.mei; stats = r.stats; startCycle = playback.windowStart + look; break; }
+      }
+    }
     document.getElementById('meiPre').textContent = mei;
     document.getElementById('meiDetails').style.display = '';
     document.getElementById('eventDetails').style.display = 'none';
     renderToScoreArea(mei);
-    renderTimeline(patterns, cycles, playback.windowStart);
+    renderTimeline(patterns, cycles, startCycle);
     scheduleGraphicRender();
     sweepLiveNotes();
 
@@ -3439,7 +3588,17 @@ function recordTidalEvent(ev) {
     dur: Math.max(durCycles, 0.005)
   });
   resolveLiveNotes(orbitNum, cycleFloat);
-  if (document.getElementById('staffSourceOpt').value === 'played') schedulePlayedStaff();
+  const staffSource = document.getElementById('staffSourceOpt').value;
+  if (staffSource === 'played') {
+    schedulePlayedStaff();
+  } else if (staffSource === 'typed') {
+    // Typed staff live overlay: if this event falls in the displayed window and its
+    // orbit is a flagged line, re-render so its real pitch replaces the grey stand-in.
+    const cycles = parseInt(document.getElementById('cyclesOpt').value) || 1;
+    if (ci >= playback.windowStart && ci < playback.windowStart + cycles &&
+        getFlaggedLines().some(p => p.label === `d${orbitNum + 1}`))
+      scheduleTypedOverlay();
+  }
 
   for (const key of liveEvents.byCycle.keys())
     if (key < ci - 32) liveEvents.byCycle.delete(key);
@@ -4138,6 +4297,35 @@ function handleBridgeMessage(message) {
     TIDAL_CHOOSE_RE.lastIndex = 0;
     while ((match = TIDAL_CHOOSE_RE.exec(sourceForRegex))) {
       const [, line, chainText, kind, fn, itemsText] = match;
+      // `choose` here is the PRIMARY pattern only when nothing structural precedes it.
+      // When the prefix already holds a structural `sound "<rhythm>"`, that pattern is
+      // the rhythm and the choose is a per-event value modifier:
+      //   • `# note (choose …)` supplies PITCH → structure the choose through the sound
+      //     rhythm so a pitched instrument shows grey stand-in notes on the staff.
+      //   • `# n (choose …)` = sample index (not a staff pitch) → yield so TIDAL_LINE_RE
+      //     draws the rhythm hits.
+      const soundM = chainText.match(/\b(?:sound|s)\s+"([^"]+)"/);
+      if (soundM && kind === 'note') {
+        // Pitch overlay: keep the sound rhythm, but replace each sample-name hit with the
+        // mini-notation random choice [i1|i2|i3] — the parser renders that as a per-event
+        // GREY random stand-in, so each hit is independently a grey pick of the pitches.
+        const vals = parseChoiceItems(`[${itemsText}]`).map(it => typeof it === 'string' ? it : it.value);
+        const choiceStr = `[${vals.join('|')}]`;
+        const notePat = soundM[1].replace(/[A-Za-z][A-Za-z0-9:._-]*/g, choiceStr);
+        activeLines.add(line);
+        handledExprLines.add(line);
+        applyPatternToLine(line, notePat, {
+          flag: line === message.selectedLine,
+          chain: [],
+          kind: 'note',
+          sourceManaged: true,
+          pitchInput: vals.every(v => /^-?\d+(?:\.\d+)?$/.test(v))
+            ? pitchInputForLiveNumeric('note', vals.join(' '))
+            : 'name'
+        });
+        continue;
+      }
+      if (/\b(?:sound|s|note|n)\s+"[^"]+"/.test(chainText)) continue;
       const items = parseChoiceItems(`[${itemsText}]`);
       activeLines.add(line);
       handledExprLines.add(line);
@@ -4313,6 +4501,14 @@ let playedStaffTimer = null;
 function schedulePlayedStaff() {
   if (playedStaffTimer) return;
   playedStaffTimer = setTimeout(() => { playedStaffTimer = null; renderLivePattern(); }, 180);
+}
+
+// Typed staff live overlay: re-render (debounced) so a just-arrived real pitch
+// replaces its grey random stand-in.
+let typedOverlayTimer = null;
+function scheduleTypedOverlay() {
+  if (typedOverlayTimer) return;
+  typedOverlayTimer = setTimeout(() => { typedOverlayTimer = null; renderLivePattern(); }, 120);
 }
 
 // Performer mode + theme toggles. Both are pure CSS class switches so they
