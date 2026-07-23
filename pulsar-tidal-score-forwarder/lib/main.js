@@ -178,9 +178,11 @@ module.exports = {
     this.evaluationSyncTimer = setTimeout(async () => {
       this.evaluationSyncTimer = null;
       try {
+        let transportShouldPlay = true;
         if (isHush) {
           // Panic: tell the score to blank everything, not to read the cursor line.
           await this.sendEditor(editor, { quiet: true, selectedLine: "all", selectedLineText: "hush" });
+          transportShouldPlay = false;
         } else {
           const selectedLineText = rawEvaluatedLine(editor);
           const evaluatedPattern = extractSelectedOrCurrentPattern(editor);
@@ -189,18 +191,19 @@ module.exports = {
             selectedLine: evaluatedPattern ? evaluatedPattern.line : orbitFromRawLine(selectedLineText),
             selectedLineText
           });
+          transportShouldPlay = !/^\s*hush\b/.test(selectedLineText);
         }
-        await this.sendSyncMessage();
+        await this.sendSyncMessage(transportShouldPlay);
       } catch {
         // postBridge already reports the connection problem.
       }
     }, delay);
   },
 
-  async sendSyncMessage() {
+  async sendSyncMessage(play = true) {
     await postBridge("/sync", {
       cycle: 0,
-      play: true
+      play
     });
   }
 };
