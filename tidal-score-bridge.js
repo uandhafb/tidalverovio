@@ -14,6 +14,11 @@ const DISABLE_OSC = process.argv.includes("--no-osc");
 const WATCH_FILE = readArg("--watch");
 const ROOT = __dirname;
 const clients = new Set();
+const LOCAL_FONT_FILES = new Map([
+  ["/assets/fonts/syne-700.woff2", "syne-700.woff2"],
+  ["/assets/fonts/ibm-plex-mono-400.woff2", "ibm-plex-mono-400.woff2"],
+  ["/assets/fonts/ibm-plex-mono-600.woff2", "ibm-plex-mono-600.woff2"]
+]);
 
 let lastSource = "";
 
@@ -34,6 +39,17 @@ const server = http.createServer(async (req, res) => {
     // so the whole system runs with no internet.
     if (req.method === "GET" && req.url === "/verovio-toolkit-wasm.js") {
       serveFile(res, path.join(ROOT, "verovio-toolkit-wasm.js"), "application/javascript; charset=utf-8");
+      return;
+    }
+
+    // Performer typography is bundled just like Verovio: explicit paths keep
+    // the bridge offline-ready without turning it into a general file server.
+    if (req.method === "GET" && LOCAL_FONT_FILES.has(req.url)) {
+      serveFile(
+        res,
+        path.join(ROOT, "assets", "fonts", LOCAL_FONT_FILES.get(req.url)),
+        "font/woff2"
+      );
       return;
     }
 

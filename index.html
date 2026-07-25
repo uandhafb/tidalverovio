@@ -9,6 +9,28 @@
      a live performance. -->
 <script src="verovio-toolkit-wasm.js"></script>
 <style>
+  @font-face {
+    font-family: "Syne";
+    src: url("assets/fonts/syne-700.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "IBM Plex Mono";
+    src: url("assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "IBM Plex Mono";
+    src: url("assets/fonts/ibm-plex-mono-600.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+  }
+
   :root {
     color-scheme: light;
     --bg: #f7f5ef;
@@ -363,8 +385,7 @@
     background: var(--bg);
   }
 
-  .performer-layout-btn,
-  .performer-follow-btn {
+  .performer-layout-btn {
     border: 1px solid transparent;
     border-radius: 999px;
     background: transparent;
@@ -381,17 +402,6 @@
     background: var(--panel);
     color: var(--ink);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  }
-
-  .performer-follow-btn {
-    border-color: var(--line);
-    background: var(--panel);
-    color: var(--ink);
-  }
-
-  .performer-follow-btn.is-paused {
-    border-color: var(--warn);
-    color: var(--warn);
   }
 
   .performer-layout-status {
@@ -625,28 +635,185 @@
   body.dark .event-chip { background: #23272d; }
   body.dark .status-pill { background: rgba(29, 33, 38, 0.7); }
 
-  /* ── Performer mode: only the score column, big ────────────────────────── */
+  /* ── Performer mode: Signal / Score ─────────────────────────────────────
+     The frame can be expressive; the notation field remains quiet, stable and
+     high-contrast for musicians reading at performance distance. */
   body.performer .controls,
   body.performer header,
   body.performer #eventDetails,
   body.performer #meiDetails { display: none !important; }
+
+  body.performer {
+    --performer-accent: #3347ff;
+    --performer-secondary: #f2b7d3;
+    --performer-paper: #f5f0e6;
+    --performer-ink: #171714;
+    --performer-muted: #56534d;
+    --performer-surface: #e9e3d9;
+    background: var(--performer-accent);
+    color: var(--performer-ink);
+    font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  }
+  body.performer[data-performer-theme="pink"] {
+    --performer-accent: #ff5b9d;
+    --performer-secondary: #6f173b;
+    --performer-paper: #fff2e8;
+    --performer-ink: #201016;
+    --performer-muted: #725764;
+    --performer-surface: #f2d7df;
+  }
+  body.performer[data-performer-theme="acid"] {
+    --performer-accent: #d9ff43;
+    --performer-secondary: #20201c;
+    --performer-paper: #f6f3e8;
+    --performer-ink: #171714;
+    --performer-muted: #5c5b52;
+    --performer-surface: #e5e9c9;
+  }
+  body.performer[data-performer-theme="cream"] {
+    --performer-accent: #e26d4f;
+    --performer-secondary: #3d1837;
+    --performer-paper: #f5edda;
+    --performer-ink: #251a20;
+    --performer-muted: #6b5c60;
+    --performer-surface: #e8d8bf;
+  }
+
   /* minmax(0,1fr) + min-width:0 stop the oversized horizontal-scroll SVG from blowing the
      grid track out to its own width (which would drag the viewport as wide as the score, so
      nothing overflows and there is nothing to scroll). The viewport stays at page width and
      the wide buffered score overflows it (clipped), giving the intended 4-visible / 12-buffered. */
-  body.performer .workspace { grid-template-columns: minmax(0, 1fr); margin-top: 8px; }
-  body.performer main { width: min(1600px, calc(100% - 24px)); min-width: 0; padding: 8px 0 16px; }
-  body.performer .performer-toolbar { display: flex; }
+  body.performer .workspace { grid-template-columns: minmax(0, 1fr); margin-top: 0; }
+  body.performer main {
+    width: min(1600px, calc(100% - 28px));
+    min-width: 0;
+    padding: 14px 0 18px;
+  }
+  body.performer .panel {
+    border: 1.5px solid var(--performer-ink);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  body.performer #staffPanel { background: var(--performer-paper); }
+  body.performer .performer-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+    align-items: end;
+    gap: 14px 22px;
+    padding: 15px 20px 13px;
+    border-bottom: 1.5px solid var(--performer-ink);
+    background: var(--performer-secondary);
+    color: var(--performer-ink);
+  }
+  body.performer[data-performer-theme="pink"] .performer-toolbar,
+  body.performer[data-performer-theme="acid"] .performer-toolbar,
+  body.performer[data-performer-theme="cream"] .performer-toolbar {
+    color: var(--performer-paper);
+  }
+  body.performer .performer-control-cluster {
+    display: grid;
+    align-content: end;
+    gap: 7px;
+    min-width: 0;
+  }
+  body.performer .performer-toolbar-label {
+    color: currentColor;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+  }
+  body.performer .performer-layout-options,
+  body.performer .performer-theme-options {
+    display: flex;
+    gap: 6px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    flex-wrap: wrap;
+  }
+  body.performer .performer-layout-btn,
+  body.performer .performer-theme-btn {
+    min-height: 35px;
+    border: 1.5px solid currentColor;
+    border-radius: 0;
+    background: transparent;
+    color: currentColor;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.035em;
+    line-height: 1;
+    padding: 9px 11px;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  body.performer .performer-layout-btn[aria-pressed="true"],
+  body.performer .performer-theme-btn[aria-pressed="true"] {
+    border-color: var(--performer-ink);
+    background: var(--performer-ink);
+    color: var(--performer-paper);
+    box-shadow: none;
+  }
+  body.performer[data-performer-theme="pink"] .performer-layout-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="pink"] .performer-theme-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="acid"] .performer-layout-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="acid"] .performer-theme-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="cream"] .performer-layout-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="cream"] .performer-theme-btn[aria-pressed="true"] {
+    border-color: var(--performer-paper);
+    background: var(--performer-paper);
+    color: var(--performer-ink);
+  }
+  body.performer .performer-theme-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  body.performer .performer-theme-swatch {
+    width: 9px;
+    height: 9px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    background: var(--swatch);
+    flex: 0 0 auto;
+  }
+  body.performer .performer-layout-btn:focus-visible,
+  body.performer .performer-theme-btn:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+  }
+  body.performer .performer-layout-status {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: currentColor;
+    font-size: 0.67rem;
+    line-height: 1.4;
+    opacity: 0.76;
+  }
+  body.performer .performer-layout-status.warning {
+    color: currentColor;
+    opacity: 1;
+    font-weight: 600;
+  }
   body.performer #scoreArea { min-height: 46vh; }
   body.performer #scoreArea > svg { width: 96%; height: auto; max-height: 62vh; }
-  body.performer .cycle-pulse { width: 92px; height: 92px; }
-  body.performer .cycle-pulse span { font-size: 1.6rem; }
-  body.performer .score-header { padding: 18px 22px; }
+  body.performer .score-viewport,
+  body.performer #scoreArea {
+    background: var(--performer-paper);
+    border-radius: 0;
+  }
+  body.performer .render-status { display: none; }
+  body.performer .score-header { padding: 20px 22px 22px; }
   body.performer .score-title h2 { font-size: 1.35rem; }
   body.performer .score-title span { font-size: 1.05rem; }
 
   body.performer.performer-horizontal .score-viewport,
   body.performer.performer-vertical .score-viewport { overflow: hidden; }
+  /* Page (4/8 bars) at fixed note size: a dense page can be tall — let it scroll instead of
+     shrinking the notes. */
+  body.performer:not(.performer-horizontal):not(.performer-vertical) .score-viewport { overflow: auto; }
 
   body.performer.performer-horizontal #scoreArea,
   body.performer.performer-vertical #scoreArea {
@@ -664,8 +831,140 @@
   }
 
   body.performer.performer-horizontal #scoreArea > svg { width: auto; }
-  body.performer.performer-horizontal .performer-playhead { display: block; }
-  body.performer.performer-horizontal #scoreArea:not(:has(> svg)) + .performer-playhead { display: none; }
+  /* NOW reading line removed per performer request — the score still scrolls (current
+     position stays at the reading point), just without the visible red marker. */
+  body.performer.performer-horizontal .performer-playhead { display: none; }
+
+  /* Performer view declutter: hide dev/debug chrome, keep only the reading score.
+     (Normal dev view is unchanged.) */
+  body.performer #patternLabel,          /* mini-notation echo under the staff title */
+  body.performer #graphicSourceLabel,    /* "live from Tidal — shows exactly what played…" */
+  body.performer .timeline-panel {       /* the whole "Exact Cycle Timeline" section */
+    display: none;
+  }
+  /* Rename the graphic-score heading for performers only. */
+  body.performer #graphicPanel .score-title h2 { font-size: 0; }
+  body.performer #graphicPanel .score-title h2::after {
+    content: "Piano Roll";
+    font-size: 1.35rem;
+  }
+
+  /* Performer concert-program header: [instrument/performer] [piece name] [BPM].
+     Hidden in the normal dev view; the staff header becomes a 3-column grid in performer. */
+  #programLeft, #pieceName { display: none; }
+  body.performer #staffPanel .score-header {
+    display: grid;
+    grid-template-columns: minmax(200px, 1fr) minmax(280px, 1.7fr) minmax(120px, 1fr);
+    align-items: center;
+    gap: 24px;
+    min-height: 154px;
+    border-bottom: 1.5px solid var(--performer-ink);
+    background: var(--performer-accent);
+    color: var(--performer-ink);
+  }
+  body.performer[data-performer-theme="blue"] #staffPanel .score-header {
+    color: var(--performer-paper);
+  }
+  body.performer #staffPanel .score-title { display: none; }   /* removes "d1 · cycle N" */
+  body.performer #programLeft {
+    display: grid;
+    justify-self: stretch;
+    align-self: stretch;
+    align-content: space-between;
+    gap: 20px;
+    line-height: 1.35;
+  }
+  body.performer .performer-kicker {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+  body.performer #performerBridgeState {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  body.performer #performerBridgeState::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    background: transparent;
+  }
+  body.performer #performerBridgeState[data-state="connected"]::before {
+    background: currentColor;
+  }
+  body.performer #performerBridgeState[data-state="error"]::before {
+    border-radius: 0;
+    transform: rotate(45deg);
+  }
+  body.performer .performer-program-meta {
+    display: grid;
+    gap: 4px;
+  }
+  body.performer #pieceInstrument {
+    font-weight: 600;
+    font-size: 0.82rem;
+    text-transform: lowercase;
+  }
+  body.performer #pieceInstrument:empty::after { content: "live instrument"; }
+  body.performer #piecePerformer {
+    color: currentColor;
+    font-size: 0.72rem;
+    opacity: 0.72;
+  }
+  body.performer #piecePerformer:empty::after { content: "performed live"; }
+  body.performer #pieceName {
+    display: block;
+    justify-self: center;
+    max-width: 760px;
+    text-align: center;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-weight: 700;
+    font-size: clamp(2rem, 4vw, 4.4rem);
+    line-height: 0.9;
+    letter-spacing: -0.045em;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+  body.performer #pieceName:empty::after { content: "UNTITLED SCORE"; }
+  body.performer #cyclePulse {
+    justify-self: end;
+    width: clamp(92px, 8.5vw, 122px);
+    height: clamp(92px, 8.5vw, 122px);
+    min-width: 92px;
+    border-radius: 50%;
+    place-items: center;
+  }
+  body.performer #cyclePulse::after {
+    display: block;
+    inset: 7px;
+    border-radius: 50%;
+    background: var(--performer-accent);
+  }
+  body.performer #cyclePulse span {
+    display: grid;
+    place-items: center;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-size: clamp(1.8rem, 3.2vw, 3.2rem);
+    line-height: 0.78;
+    letter-spacing: -0.05em;
+  }
+  body.performer #cyclePulse span::after {
+    content: "BPM ↗";
+    margin-top: 9px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: currentColor;
+  }
 
   body.performer.performer-vertical #scoreArea {
     min-height: 0;
@@ -674,6 +973,157 @@
   }
 
   body.performer.performer-vertical #scoreArea > svg { width: 100%; }
+
+  /* Computer stage: the whole performer view is one screen, not a long web page.
+     Tablet keeps the existing rules until its dedicated pass. */
+  body.performer[data-performer-size="computer"] {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  body.performer[data-performer-size="computer"] main {
+    width: min(1800px, calc(100% - 24px));
+    height: 100dvh;
+    padding: 10px 0 12px;
+  }
+  body.performer[data-performer-size="computer"] .workspace,
+  body.performer[data-performer-size="computer"] .score-wrap {
+    height: 100%;
+    min-height: 0;
+  }
+  body.performer[data-performer-size="computer"] #staffPanel {
+    display: grid !important;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  body.performer[data-performer-size="computer"] #staffPanel .score-header {
+    grid-template-columns: minmax(190px, 0.9fr) minmax(360px, 2fr) minmax(92px, 0.9fr);
+    gap: 18px;
+    min-height: 112px;
+    padding: 13px 18px 15px;
+  }
+  body.performer[data-performer-size="computer"] #programLeft {
+    gap: 12px;
+  }
+  body.performer[data-performer-size="computer"] #pieceName {
+    max-width: 860px;
+    font-size: clamp(2rem, 3.25vw, 3.7rem);
+    line-height: 0.88;
+  }
+  body.performer[data-performer-size="computer"] #cyclePulse {
+    width: clamp(78px, 6.4vw, 92px);
+    height: clamp(78px, 6.4vw, 92px);
+    min-width: 78px;
+  }
+  body.performer[data-performer-size="computer"] #cyclePulse span {
+    font-size: clamp(1.55rem, 2.35vw, 2.3rem);
+  }
+  body.performer[data-performer-size="computer"] #cyclePulse span::after {
+    margin-top: 7px;
+    font-size: 0.48rem;
+  }
+  body.performer[data-performer-size="computer"] .performer-toolbar {
+    grid-template-columns: minmax(450px, 1.45fr) minmax(360px, 1fr) auto;
+    align-items: start;
+    gap: 8px 18px;
+    padding: 9px 16px 8px;
+  }
+  body.performer[data-performer-size="computer"] .performer-control-cluster {
+    gap: 5px;
+  }
+  body.performer[data-performer-size="computer"] .performer-colour-cluster {
+    justify-self: center;
+  }
+  body.performer[data-performer-size="computer"] .performer-display-cluster {
+    justify-self: end;
+  }
+  body.performer[data-performer-size="computer"] .performer-layout-btn,
+  body.performer[data-performer-size="computer"] .performer-theme-btn {
+    min-height: 31px;
+    padding: 7px 9px;
+    font-size: 0.66rem;
+  }
+  body.performer[data-performer-size="computer"] .performer-layout-status {
+    font-size: 0.62rem;
+    line-height: 1.25;
+  }
+  body.performer[data-performer-size="computer"] .score-viewport {
+    height: auto !important;
+    min-height: 0;
+    overflow: hidden !important;
+  }
+  body.performer[data-performer-size="computer"] #scoreArea {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 10px 14px;
+    overflow: visible;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+  body.performer[data-performer-size="computer"] #scoreArea > svg {
+    flex: 0 0 auto;
+    transform-origin: left top;
+    will-change: transform;
+  }
+  body.performer[data-performer-size="computer"] .float-controls {
+    right: 18px;
+    bottom: 16px;
+  }
+  body.performer[data-performer-size="computer"] .float-controls button {
+    border: 1.5px solid var(--performer-ink);
+    border-radius: 0;
+    box-shadow: none;
+    padding: 7px 10px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+  }
+  body.performer[data-performer-size="computer"] #themeBtn { display: none; }
+  body.performer[data-performer-size="computer"] #graphicPanel { display: none !important; }
+
+  @media (max-width: 920px) {
+    body.performer .performer-toolbar {
+      grid-template-columns: 1fr;
+      align-items: start;
+    }
+    body.performer #staffPanel .score-header {
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "meta bpm"
+        "title title";
+      min-height: 0;
+    }
+    body.performer #programLeft { grid-area: meta; }
+    body.performer #pieceName {
+      grid-area: title;
+      justify-self: start;
+      text-align: left;
+      margin-top: 14px;
+    }
+    body.performer #cyclePulse { grid-area: bpm; }
+  }
+
+  @media (max-width: 560px) {
+    body.performer main { width: calc(100% - 16px); padding-top: 8px; }
+    body.performer #staffPanel .score-header { padding: 16px; }
+    body.performer .performer-kicker { align-items: flex-start; flex-direction: column; gap: 5px; }
+    body.performer .performer-toolbar { padding: 14px; }
+    body.performer .performer-layout-btn,
+    body.performer .performer-theme-btn { flex: 1 1 auto; justify-content: center; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body.performer *,
+    body.performer *::before,
+    body.performer *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
 
   /* Floating buttons (always visible, discreet) */
   .float-controls {
@@ -869,16 +1319,46 @@
             <h2 id="scoreTitle">no pattern · cycle 0</h2>
             <span id="patternLabel"></span>
           </div>
+          <!-- Performer concert-program header (from `-- name/instrument/performed by` comments) -->
+          <div id="programLeft">
+            <div class="performer-kicker">
+              <span>Performer / live</span>
+              <span id="performerBridgeState" data-state="idle">Bridge idle</span>
+            </div>
+            <div class="performer-program-meta">
+              <div id="pieceInstrument"></div>
+              <div id="piecePerformer"></div>
+            </div>
+          </div>
+          <div id="pieceName"></div>
           <div class="cycle-pulse" id="cyclePulse" title="Cycle progress"><span id="cyclePulseNum">0</span></div>
         </div>
         <div id="performerToolbar" class="performer-toolbar" aria-label="Performer reading flow">
-          <span class="performer-toolbar-label">Reading flow</span>
-          <div class="performer-layout-options" role="group" aria-label="Score movement">
-            <button class="performer-layout-btn" type="button" data-performer-layout="page" aria-pressed="true">Page</button>
-            <button class="performer-layout-btn" type="button" data-performer-layout="horizontal" aria-pressed="false">Horizontal</button>
-            <button class="performer-layout-btn" type="button" data-performer-layout="vertical" aria-pressed="false">2 × 4 Vertical</button>
+          <div class="performer-control-cluster performer-reading-cluster">
+            <span class="performer-toolbar-label">Reading mode</span>
+            <div class="performer-layout-options" role="group" aria-label="Score movement">
+              <button class="performer-layout-btn" type="button" data-performer-layout="page" data-page-bars="4" aria-pressed="true">04 bars</button>
+              <button class="performer-layout-btn" type="button" data-performer-layout="page" data-page-bars="8" aria-pressed="false">08 bars</button>
+              <button class="performer-layout-btn" type="button" data-performer-layout="horizontal" aria-pressed="false">→ Horizontal</button>
+              <button class="performer-layout-btn" type="button" data-performer-layout="vertical" aria-pressed="false">↓ Vertical</button>
+            </div>
           </div>
-          <button id="performerFollowBtn" class="performer-follow-btn" type="button" aria-pressed="false">⏸ Freeze view</button>
+          <div class="performer-control-cluster performer-colour-cluster">
+            <span class="performer-toolbar-label">Colour</span>
+            <div class="performer-theme-options" role="group" aria-label="Performer colour theme">
+              <button class="performer-theme-btn" type="button" data-performer-theme="blue" aria-pressed="true"><span class="performer-theme-swatch" style="--swatch:#3347ff"></span>Blue</button>
+              <button class="performer-theme-btn" type="button" data-performer-theme="pink" aria-pressed="false"><span class="performer-theme-swatch" style="--swatch:#ff5b9d"></span>Pink</button>
+              <button class="performer-theme-btn" type="button" data-performer-theme="acid" aria-pressed="false"><span class="performer-theme-swatch" style="--swatch:#d9ff43"></span>Acid</button>
+              <button class="performer-theme-btn" type="button" data-performer-theme="cream" aria-pressed="false"><span class="performer-theme-swatch" style="--swatch:#e26d4f"></span>Cream</button>
+            </div>
+          </div>
+          <div class="performer-control-cluster performer-display-cluster">
+            <span class="performer-toolbar-label">Display</span>
+            <div class="performer-layout-options" role="group" aria-label="Display preset">
+              <button class="performer-layout-btn" type="button" data-size-preset="computer" aria-pressed="true">Computer</button>
+              <button class="performer-layout-btn" type="button" data-size-preset="tablet" aria-pressed="false">Tablet</button>
+            </div>
+          </div>
           <span id="performerLayoutStatus" class="performer-layout-status" aria-live="polite">Page · cycle view setting</span>
         </div>
         <div id="scoreViewport" class="score-viewport">
@@ -2594,6 +3074,44 @@ function clefMiddlePitch(clef) {
   return clef === 'treble' ? { pname: 'b', oct: 4 } : { pname: 'd', oct: 3 };
 }
 
+function collectPitchRanks(elements, pitchInput, out) {
+  for (const el of elements || []) {
+    if (el.type === 'leaf') {
+      const info = parseNote(el.value, pitchInput);
+      if (!info || info.rest) continue;
+      const notes = info.chord || [info];
+      for (const note of notes) out.push(pitchRank(note));
+    }
+    if (el.children) collectPitchRanks(el.children, pitchInput, out);
+    if (el.alternatives) collectPitchRanks(el.alternatives, pitchInput, out);
+    if (el.inner) collectPitchRanks([el.inner], pitchInput, out);
+  }
+}
+
+function clefForPitchRanks(ranks, fallback = 'treble', strategy = 'median') {
+  if (!ranks.length) return fallback;
+  const sorted = [...ranks].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (strategy === 'ledger') {
+    // Compare how far every pitch falls outside the five staff lines. This is
+    // more reliable than a median for a single horizontal instrument whose
+    // wide/low voicing would otherwise create an enormous treble-clef box.
+    const outsideCost = (low, high) => sorted.reduce(
+      (sum, rank) => sum + Math.max(0, low - rank, rank - high), 0);
+    const trebleCost = outsideCost(
+      pitchRank({ pname: 'e', oct: 4 }),
+      pitchRank({ pname: 'f', oct: 5 }));
+    const bassCost = outsideCost(
+      pitchRank({ pname: 'g', oct: 2 }),
+      pitchRank({ pname: 'a', oct: 3 }));
+    if (bassCost !== trebleCost) return bassCost < trebleCost ? 'bass' : 'treble';
+  }
+  // Middle C and above reads naturally in treble; lower material avoids
+  // excessive ledger lines by moving to bass. Sounding pitch is unchanged.
+  const middleC = pitchRank({ pname: 'c', oct: 4 });
+  return median < middleC ? 'bass' : 'treble';
+}
+
 // ─── Drum-kit staff positions ────────────────────────────────────────────────
 // Standard drum notation: each instrument owns a vertical position on the
 // percussion staff; cymbals/hats use x-shaped noteheads. Known Tidal sample
@@ -2851,7 +3369,7 @@ function eventsToElements(events) {
 // makes the notes change as the playback clock advances.
 function patternsToMEI(patterns, numCycles, {
   clef = 'treble', mode = 'pitch', pitchInput = 'name', startCycle = 0,
-  systemBreakEvery = 0
+  systemBreakEvery = 0, autoClef = false, clefStrategy = 'median'
 } = {}) {
   noteIdSeq = 1;
   liveNotes = [];
@@ -2909,6 +3427,7 @@ function patternsToMEI(patterns, numCycles, {
     ? (isDrumKit ? (v => drumMap.get(v) || singleSpot) : singleSpot)
     : clefMiddlePitch(clef);
   const stats = { total: 0, rendered: 0, approximated: 0, probabilistic: 0 };
+  const staffPitchRanks = parsed.map(() => []);
   if (isDrumKit) {
     stats.legend = [...drumMap.entries()]
       .sort((a, b) => pitchRank(a[1]) - pitchRank(b[1]))
@@ -2928,6 +3447,8 @@ function patternsToMEI(patterns, numCycles, {
       const juxActive = (p.chain || []).some(t => t.fn === 'jux');
       const contentCycle = juxActive ? Math.floor(c / 3) : c;
       const cycleLayers = p.layersByCycle ? p.layersByCycle(c) : applyChain(p.baseLayers, p.chain, c);
+      if (!isRhythm && autoClef)
+        for (const layer of cycleLayers) collectPitchRanks(layer, pitchInput, staffPitchRanks[idx]);
       const layerEls = cycleLayers.map((layerElements, li) => {
         const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, contentCycle, pitchInput, new Fraction(c), p.orbit);
         return `\n          <layer n="${li + 1}">\n            ${items.join('\n            ')}\n          </layer>`;
@@ -2939,9 +3460,16 @@ function patternsToMEI(patterns, numCycles, {
       measureEls.push('\n      <sb/>');
   }
 
-  const staffDefs = parsed.map((p, idx) =>
-    `<staffDef n="${idx + 1}" lines="${staffLines}" clef.shape="${clefShape}" clef.line="${clefLine}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`
-  ).join('\n              ');
+  const staffDefs = parsed.map((p, idx) => {
+    let shape = clefShape;
+    let line = clefLine;
+    if (!isRhythm && autoClef) {
+      const staffClef = clefForPitchRanks(staffPitchRanks[idx], clef, clefStrategy);
+      shape = staffClef === 'bass' ? 'F' : 'G';
+      line = staffClef === 'bass' ? '4' : '2';
+    }
+    return `<staffDef n="${idx + 1}" lines="${staffLines}" clef.shape="${shape}" clef.line="${line}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`;
+  }).join('\n              ');
 
   const mei = `<?xml version="1.0" encoding="UTF-8"?>
 <mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="4.0">
@@ -3025,12 +3553,24 @@ const liveEvents  = { byCycle: new Map(), lastAt: 0 };
 
 // Performer reading layouts. Scroll modes render beyond the visible window so
 // the score can move continuously without asking Verovio to lay out every frame.
+// Base Verovio render scale for performer modes; the SVG is then CSS-scaled so the NOTEHEAD
+// glyph hits a target pixel height (chosen via the Computer/Tablet size toggle). Sizing off the
+// notehead (a fixed glyph) keeps it correct regardless of clef/ledger lines. Tunable px targets:
+const PERFORMER_BASE_SCALE = 40;
+const PERFORMER_HEAD_COMPUTER = 22;   // upper bound; desktop fitting may reduce it to keep all music visible
+const PERFORMER_HEAD_TABLET   = 20;   // notehead height (px) for a tablet
+const PERFORMER_STAGE_PADDING = 14;
 const HORIZONTAL_BUFFER_CYCLES = 12;
 const HORIZONTAL_VISIBLE_CYCLES = 4;
 const VERTICAL_SYSTEM_CYCLES = 4;
-const VERTICAL_BUFFER_CYCLES = 20; // five systems; two visible, three buffered
+const VERTICAL_VISIBLE_CYCLES = 8;  // two complete four-cycle systems in the viewport
+const VERTICAL_BUFFER_CYCLES = 12; // third system enters continuously from below
 const performerView = {
   layout: 'page',
+  pageBars: 4,            // performer page size: 4 or 8 bars (cycles) per auto-turning page
+  sizePreset: 'computer', // note-size preset: 'computer' | 'tablet'
+  fitScale: 1,            // uniform scale applied to hit the preset's notehead size
+  _preparedLayout: null,  // last layout preparePerformerScore ran for — detects a fresh entry
   paused: false,
   horizontalOffsetPx: 0,
   // Cached ONCE per render so the animation loop never measures the DOM (getBBox /
@@ -3038,8 +3578,11 @@ const performerView = {
   // constant-velocity translate: px per cycle × elapsed cycles.
   hPxPerCycle: 0,
   hBaseLeft: 0,
+  horizontalBaseYPx: 0,
   verticalStepPx: 0,
-  verticalOffsetPx: 0
+  verticalOffsetPx: 0,
+  verticalBaseXPx: 0,
+  verticalBaseYPx: 0
 };
 
 function activePerformerLayout() {
@@ -3050,20 +3593,29 @@ function getRenderCycleCount() {
   const layout = activePerformerLayout();
   if (layout === 'horizontal') return HORIZONTAL_BUFFER_CYCLES;
   if (layout === 'vertical') return VERTICAL_BUFFER_CYCLES;
+  // page: performer uses the 4-/8-bar page size; normal dev view uses the cycle dropdown.
+  if (document.body.classList.contains('performer')) return performerView.pageBars;
   return parseInt(document.getElementById('cyclesOpt').value);
 }
 
 function getSystemBreakEvery() {
-  return activePerformerLayout() === 'vertical' ? VERTICAL_SYSTEM_CYCLES : 0;
+  const layout = activePerformerLayout();
+  if (layout === 'vertical') return VERTICAL_SYSTEM_CYCLES;
+  if (layout === 'page' && document.body.classList.contains('performer') && performerView.pageBars === 8)
+    return 4;
+  return 0;
 }
 
 function windowStartForLayout(cycle) {
   const ci = Math.max(0, Math.floor(cycle));
   const layout = activePerformerLayout();
   if (layout === 'horizontal') return Math.max(0, ci - 1);
-  if (layout === 'vertical') {
-    const currentSystem = Math.floor(ci / VERTICAL_SYSTEM_CYCLES) * VERTICAL_SYSTEM_CYCLES;
-    return Math.max(0, currentSystem - VERTICAL_SYSTEM_CYCLES);
+  if (layout === 'vertical')
+    return Math.floor(ci / VERTICAL_VISIBLE_CYCLES) * VERTICAL_VISIBLE_CYCLES;
+  // page: performer snaps to whole 4-/8-bar pages (real page turns); dev view slides per cycle.
+  if (document.body.classList.contains('performer')) {
+    const bars = performerView.pageBars;
+    return Math.floor(ci / bars) * bars;
   }
   return ci;
 }
@@ -3071,22 +3623,31 @@ function windowStartForLayout(cycle) {
 function resetVerticalMotion() {
   performerView.verticalStepPx = 0;
   performerView.verticalOffsetPx = 0;
+  performerView.verticalBaseXPx = 0;
+  performerView.verticalBaseYPx = 0;
 }
 
 function updatePerformerToolbar() {
   document.querySelectorAll('[data-performer-layout]').forEach(btn => {
-    btn.setAttribute('aria-pressed', String(btn.dataset.performerLayout === performerView.layout));
+    // The two page buttons share layout="page"; also match the bar size so only the active one lights.
+    const active = btn.dataset.performerLayout === performerView.layout &&
+      (!btn.dataset.pageBars || Number(btn.dataset.pageBars) === performerView.pageBars);
+    btn.setAttribute('aria-pressed', String(active));
   });
 
-  const followBtn = document.getElementById('performerFollowBtn');
-  followBtn.classList.toggle('is-paused', performerView.paused);
-  followBtn.setAttribute('aria-pressed', String(performerView.paused));
-  followBtn.textContent = performerView.paused ? '▶ Resume view' : '⏸ Freeze view';
+  const activeTheme = document.body.dataset.performerTheme || 'blue';
+  document.querySelectorAll('.performer-theme-btn[data-performer-theme]').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.performerTheme === activeTheme));
+  });
+
+  document.querySelectorAll('[data-size-preset]').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.sizePreset === performerView.sizePreset));
+  });
 
   const sourceIsPlayed = document.getElementById('staffSourceOpt').value === 'played';
   const status = document.getElementById('performerLayoutStatus');
   const descriptions = {
-    page: `Page · ${document.getElementById('cyclesOpt').value} cycle view`,
+    page: `Page · ${performerView.pageBars} bars`,
     horizontal: 'Horizontal · 4 visible / 12 buffered',
     vertical: 'Vertical · two 4-cycle systems visible'
   };
@@ -3094,7 +3655,8 @@ function updatePerformerToolbar() {
     ? `following Tidal at ${remoteClock.cps.toFixed(3)} cps`
     : playback.playing ? 'manual preview running'
       : remoteClock.at > 0 ? 'Tidal stopped' : 'waiting for Tidal';
-  status.textContent = descriptions[performerView.layout] +
+  const sizeLabel = performerView.sizePreset === 'tablet' ? 'Tablet' : 'Computer';
+  status.textContent = descriptions[performerView.layout] + ` · ${sizeLabel}` +
     ` · ${clockDescription}` +
     (sourceIsPlayed && performerView.layout !== 'page' ? ' · Played source cannot preview future cycles' : '');
   status.classList.toggle('warning', sourceIsPlayed && performerView.layout !== 'page');
@@ -3113,13 +3675,19 @@ function setPerformerLayout(layout, { render = true } = {}) {
   if (render) renderCurrent();
 }
 
-function togglePerformerFollow() {
-  performerView.paused = !performerView.paused;
-  if (!performerView.paused) {
-    playback.windowStart = windowStartForLayout(currentCycleFloat());
-    renderCurrent();
-  }
+function setPerformerTheme(theme) {
+  if (!['blue', 'pink', 'acid', 'cream'].includes(theme)) return;
+  document.body.dataset.performerTheme = theme;
+  try { localStorage.setItem('performerTheme', theme); } catch {}
   updatePerformerToolbar();
+}
+
+function setPerformerSizePreset(size, { render = true } = {}) {
+  if (!['computer', 'tablet'].includes(size)) return;
+  performerView.sizePreset = size;
+  document.body.dataset.performerSize = size;
+  updatePerformerToolbar();
+  if (render && document.body.classList.contains('performer')) renderCurrent();
 }
 
 function clockIsLive() { return remoteClock.playing && remoteClock.at > 0 && remoteClock.cps > 0; }
@@ -3179,7 +3747,8 @@ function positionHorizontalScore(cycleFloat) {
   offset = Math.max(minimum, Math.min(maximum, offset));
 
   performerView.horizontalOffsetPx = offset;
-  svg.style.transform = `translate3d(${offset.toFixed(2)}px, 0, 0)`;
+  svg.style.transform =
+    `translate3d(${offset.toFixed(2)}px, ${performerView.horizontalBaseYPx.toFixed(2)}px, 0)`;
 }
 
 function positionVerticalScore(cycleFloat) {
@@ -3187,14 +3756,16 @@ function positionVerticalScore(cycleFloat) {
   const svg = document.querySelector('#scoreArea > svg');
   if (!svg || performerView.verticalStepPx <= 0) return;
 
-  const relativeCycle = Math.max(0, cycleFloat - playback.windowStart);
-  const visibleSystems = 2;
-  const bufferedSystems = VERTICAL_BUFFER_CYCLES / VERTICAL_SYSTEM_CYCLES;
-  const maximumSystems = Math.max(0, bufferedSystems - visibleSystems);
-  const systemProgress = Math.min(maximumSystems, relativeCycle / VERTICAL_SYSTEM_CYCLES);
-  const offset = -systemProgress * performerView.verticalStepPx;
+  // Scroll exactly one system over its four-cycle duration. The outgoing
+  // system therefore remains present until its final bar completes, while a
+  // third buffered system enters continuously from below.
+  const elapsed = Math.max(0, cycleFloat - playback.windowStart);
+  const systemProgress = elapsed / VERTICAL_SYSTEM_CYCLES;
+  const offset = performerView.verticalBaseYPx -
+    performerView.verticalStepPx * systemProgress;
   performerView.verticalOffsetPx = offset;
-  svg.style.transform = `translate3d(0, ${offset.toFixed(2)}px, 0)`;
+  svg.style.transform =
+    `translate3d(${performerView.verticalBaseXPx.toFixed(2)}px, ${offset.toFixed(2)}px, 0)`;
 }
 
 function maybeAdvanceScoreWindow(cycleFloat) {
@@ -3211,9 +3782,10 @@ function maybeAdvanceScoreWindow(cycleFloat) {
   }
 
   if (layout === 'vertical') {
-    const relativeCycle = cycleFloat - playback.windowStart;
-    const rebufferAt = VERTICAL_BUFFER_CYCLES - VERTICAL_SYSTEM_CYCLES * 2;
-    if (relativeCycle < 0 || relativeCycle >= rebufferAt) {
+    // Refresh after the two visible systems have passed. At this instant the
+    // buffered third system is already at the top, so replacing it with the
+    // first system of the next buffer preserves the same visual position.
+    if (ci < playback.windowStart || ci >= playback.windowStart + VERTICAL_VISIBLE_CYCLES) {
       playback.windowStart = windowStartForLayout(ci);
       renderCurrent();
     }
@@ -3222,7 +3794,7 @@ function maybeAdvanceScoreWindow(cycleFloat) {
 
   const numCycles = getRenderCycleCount();
   if (ci < playback.windowStart || ci >= playback.windowStart + numCycles) {
-    playback.windowStart = ci;
+    playback.windowStart = windowStartForLayout(ci); // snap to the aligned page boundary
     renderCurrent();
   }
 }
@@ -3241,6 +3813,9 @@ function masterLoop() {
   // the last extrapolated score position frozen until Tidal starts again.
   if (wasClockLive !== live) {
     wasClockLive = live;
+    const performerBridgeState = document.getElementById('performerBridgeState');
+    if (performerBridgeState?.dataset.state === 'connected')
+      performerBridgeState.textContent = live ? 'Tidal live' : 'Bridge connected';
     const playBtn = document.getElementById('playBtn');
     const stopBtn = document.getElementById('stopBtn');
     if (live) {
@@ -3276,9 +3851,17 @@ function masterLoop() {
   const windowPhase = Math.min(1, Math.max(0, (cf - playback.windowStart) / numCycles));
 
   const pct = (running ? cyclePhase * 100 : 0).toFixed(1);
+  const pulseColour = document.body.classList.contains('performer') ? 'currentColor' : 'var(--accent)';
+  const pulseRest = document.body.classList.contains('performer')
+    ? 'color-mix(in srgb, currentColor 18%, transparent)'
+    : 'var(--pulse-rest)';
   document.getElementById('cyclePulse').style.background =
-    `conic-gradient(var(--accent) ${pct}%, var(--pulse-rest) ${pct}%)`;
-  document.getElementById('cyclePulseNum').textContent = Math.floor(cf);
+    `conic-gradient(${pulseColour} ${pct}%, ${pulseRest} ${pct}%)`;
+  // The cycle circle shows the live BPM in performer mode, the cycle number otherwise.
+  document.getElementById('cyclePulseNum').textContent =
+    document.body.classList.contains('performer')
+      ? Math.round((clockIsLive() ? remoteClock.cps : getCps()) * 60 * BEATS_PER_CYCLE)
+      : Math.floor(cf);
 
 
   document.querySelectorAll('.graphic-playhead').forEach(el => {
@@ -3305,30 +3888,43 @@ function horizontalBufferWidth() {
 
 function renderToScoreArea(mei) {
   const layout = activePerformerLayout();
+  const inPerformer = document.body.classList.contains('performer');
   const renderOptions = {
     pageWidth: 2400, pageHeight: 800,
     pageMarginTop: 80, pageMarginBottom: 80,
     pageMarginLeft: 80, pageMarginRight: 80,
     scale: 40, adjustPageWidth: 1, adjustPageHeight: 1,
   };
-  if (layout === 'horizontal') {
-    renderOptions.pageWidth = horizontalBufferWidth();
-    renderOptions.pageHeight = 900;
-    renderOptions.breaks = 'none';
-    renderOptions.adjustPageWidth = 0;   // fill the target width so the staff keeps its height
-    renderOptions.adjustPageHeight = 1;  // but trim vertical whitespace
-    // TIGHT spacing is essential here: a high spacingNonLinear spreads the 12-cycle strip to a
-    // huge natural width (~25000px), which then downscales to the display width and collapses the
-    // staff to a few px tall. Low values keep the natural width ≈ the display width so the staff
-    // renders at a readable height, while notes stay packed enough to show ~4 cycles at once.
-    renderOptions.spacingLinear = 0.1;
-    renderOptions.spacingNonLinear = 0.3;
-  } else if (layout === 'vertical') {
-    renderOptions.pageWidth = 2200;
-    renderOptions.pageHeight = 2800;
-    renderOptions.breaks = 'encoded';
-    renderOptions.spacingLinear = 0.1;
-    renderOptions.spacingNonLinear = 0.3;
+  // PERFORMER modes: render at a base scale + even spacing; fitPerformerScore then scales the
+  // SVG to FILL the mode's viewport (clamped to a readable staff band).
+  if (inPerformer) {
+    const vpW = Math.max(400, (document.getElementById('scoreViewport') || {}).clientWidth || 900);
+    renderOptions.scale = PERFORMER_BASE_SCALE;
+    renderOptions.pageHeight = 20000;
+    renderOptions.adjustPageHeight = 1;
+    renderOptions.pageMarginTop = 24;
+    renderOptions.pageMarginBottom = 24;
+    renderOptions.pageMarginLeft = 36;
+    renderOptions.pageMarginRight = 36;
+    renderOptions.spacingStaff = 9;
+    renderOptions.spacingSystem = 10;
+    renderOptions.minLastJustification = 0;
+    // Even, density-independent spacing (Verovio defaults ≈ 0.25/0.6). Keeps bars looking uniform.
+    renderOptions.spacingLinear = 0.04;
+    renderOptions.spacingNonLinear = 0.55;
+    if (layout === 'horizontal') {
+      renderOptions.pageWidth = 100000;   // Verovio max; breaks:'none' keeps one long line…
+      renderOptions.breaks = 'none';
+      renderOptions.adjustPageWidth = 1;  // …shrunk to the music's own width (scroll this)
+    } else if (layout === 'vertical') {
+      renderOptions.pageWidth = vpW;      // 4-cycle systems fill the viewport width
+      renderOptions.breaks = 'encoded';
+      renderOptions.adjustPageWidth = 0;
+    } else { // page (4 / 8 bars)
+      renderOptions.pageWidth = vpW;      // bars wrap into justified systems that fill the width
+      renderOptions.breaks = 'encoded';   // 4 bars = one system; 8 bars = encoded 4 + 4
+      renderOptions.adjustPageWidth = 0;
+    }
   }
 
   const svg = vrvToolkit.renderData(mei, renderOptions);
@@ -3337,63 +3933,224 @@ function renderToScoreArea(mei) {
   const svgEl = scoreArea.querySelector('svg');
   if (svgEl) {
     svgEl.style.filter = '';
-    svgEl.style.maxWidth = '100%';
-    svgEl.style.height = 'auto';
+    if (inPerformer) {
+      // Natural size — do NOT scale the SVG (scaling is what made notes resize with content).
+      // These inline styles override the CSS width:96% / max-height:62vh that page mode inherited.
+      svgEl.style.maxWidth = 'none';
+      svgEl.style.width = 'auto';
+      svgEl.style.height = 'auto';
+      svgEl.style.maxHeight = 'none';
+    } else {
+      svgEl.style.maxWidth = '100%';
+      svgEl.style.height = 'auto';
+    }
     preparePerformerScore(svgEl);
   }
+}
+
+function unionClientRects(elements) {
+  const rects = elements.map(el => el.getBoundingClientRect())
+    .filter(r => r.width > 0 && r.height > 0);
+  if (!rects.length) return null;
+  const left = Math.min(...rects.map(r => r.left));
+  const top = Math.min(...rects.map(r => r.top));
+  const right = Math.max(...rects.map(r => r.right));
+  const bottom = Math.max(...rects.map(r => r.bottom));
+  return { left, top, right, bottom, width: right - left, height: bottom - top };
+}
+
+// Systems give a tighter and more musically meaningful box than the SVG page.
+// In particular, this ignores Verovio's large page margins while still including
+// intentional ledger lines, articulations, clefs and measure numbers.
+function scoreContentRect(svg) {
+  const systems = [...svg.querySelectorAll('g.system, .system')];
+  return unionClientRects(systems) || svg.getBoundingClientRect();
+}
+
+function horizontalReadingWidth(svg, content) {
+  const measures = [...svg.querySelectorAll('g.measure, .measure')]
+    .slice(0, HORIZONTAL_VISIBLE_CYCLES);
+  const visibleMeasures = unionClientRects(measures);
+  if (!visibleMeasures) return content.width * HORIZONTAL_VISIBLE_CYCLES / HORIZONTAL_BUFFER_CYCLES;
+  // Include the instrument label and clef before measure one, not just the
+  // bar interiors, so the complete four-bar reading window fits.
+  return Math.max(1, visibleMeasures.right - content.left);
+}
+
+function firstSystemStaffCount(svg) {
+  const firstSystem = svg.querySelector('g.system, .system');
+  return firstSystem ? firstSystem.querySelectorAll('g.staff, .staff').length : 0;
+}
+
+function noteheadHeight(svg, fallbackHeight) {
+  const heads = [...svg.querySelectorAll('g.notehead, .notehead')].slice(0, 10)
+    .map(el => el.getBoundingClientRect().height)
+    .filter(h => h > 0);
+  return heads.length ? Math.min(...heads) : Math.max(1, fallbackHeight * 0.05);
+}
+
+function setSvgScale(svg, naturalWidth, naturalHeight, fit) {
+  svg.style.width = `${(naturalWidth * fit).toFixed(1)}px`;
+  svg.style.height = `${(naturalHeight * fit).toFixed(1)}px`;
+  performerView.fitScale = fit;
+  return fit;
+}
+
+// Shared bounded fit for both size presets. The music is scaled toward `targetHead` (a notehead
+// height in px) and never beyond what's needed to fit the mode's visible window (~4 horizontal
+// bars, ~2 vertical systems, or the whole page) — so dense content still shrinks to fit. For a LONE
+// instrument playing sparse content, that "fit the window" bound would otherwise be enormous (an
+// almost-empty measure blown up to fill four bars' worth of width), so it's additionally capped at
+// `targetHead * soloMult`: a little fuller than a dense ensemble, but never runaway/blocky.
+function fitPerformerToViewport(svg, viewport, layout, { targetHead, soloMult = 1, padding = PERFORMER_STAGE_PADDING }) {
+  const rect0 = svg.getBoundingClientRect();
+  const naturalW = rect0.width || parseFloat(svg.getAttribute('width')) || 1;
+  const naturalH = rect0.height || parseFloat(svg.getAttribute('height')) || 1;
+  const viewportW = Math.max(240, viewport.clientWidth - padding * 2);
+  const viewportH = Math.max(180, viewport.clientHeight - padding * 2);
+  const headH0 = noteheadHeight(svg, naturalH);
+  const headFit = targetHead / Math.max(1, headH0);
+  const systems = [...svg.querySelectorAll('g.system, .system')];
+  const content = scoreContentRect(svg);
+
+  let widthFit = viewportW / Math.max(1, content.width);
+  let heightFit = viewportH / Math.max(1, content.height);
+
+  if (layout === 'horizontal') {
+    // Measure the real first four measures (including label + clef), rather
+    // than estimating them as one third of the full buffer.
+    const visibleWidth = horizontalReadingWidth(svg, content);
+    widthFit = viewportW / Math.max(1, visibleWidth);
+  } else if (layout === 'vertical' && systems.length >= 2) {
+    const firstTwo = unionClientRects(systems.slice(0, 2));
+    widthFit = viewportW / Math.max(1, firstTwo.width);
+    if (systems.length >= 3) {
+      const first = systems[0].getBoundingClientRect();
+      const third = systems[2].getBoundingClientRect();
+      heightFit = viewportH / Math.max(1, third.top - first.top);
+    } else {
+      heightFit = viewportH / Math.max(1, firstTwo.height);
+    }
+  }
+
+  const singleHorizontalStaff = layout === 'horizontal' && firstSystemStaffCount(svg) === 1;
+  const maxFit = headFit * (singleHorizontalStaff ? soloMult : 1);
+  const fit = Math.max(0.12, Math.min(6, maxFit, widthFit, heightFit));
+  return setSvgScale(svg, naturalW, naturalH, fit);
+}
+
+function fitComputerScore(svg, viewport, layout) {
+  return fitPerformerToViewport(svg, viewport, layout, {
+    targetHead: PERFORMER_HEAD_COMPUTER, soloMult: 1.7, padding: PERFORMER_STAGE_PADDING
+  });
+}
+
+function fitTabletScore(svg, viewport, layout) {
+  return fitPerformerToViewport(svg, viewport, layout, {
+    targetHead: PERFORMER_HEAD_TABLET, soloMult: 1.4, padding: PERFORMER_STAGE_PADDING * 0.6
+  });
+}
+
+function fitPerformerScore(svg, viewport, layout) {
+  svg.style.maxWidth = 'none';
+  svg.style.maxHeight = 'none';
+  svg.style.width = 'auto';
+  svg.style.height = 'auto';
+  return performerView.sizePreset === 'computer'
+    ? fitComputerScore(svg, viewport, layout)
+    : fitTabletScore(svg, viewport, layout);
+}
+
+function alignComputerPage(svg, viewport) {
+  const viewportRect = viewport.getBoundingClientRect();
+  const content = scoreContentRect(svg);
+  const x = (viewport.clientWidth - content.width) / 2 - (content.left - viewportRect.left);
+  const y = PERFORMER_STAGE_PADDING - (content.top - viewportRect.top);
+  svg.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
+}
+
+function alignComputerHorizontal(svg, viewport) {
+  const viewportRect = viewport.getBoundingClientRect();
+  const svgRect = svg.getBoundingClientRect();
+  const content = scoreContentRect(svg);
+  performerView.horizontalBaseYPx =
+    (viewport.clientHeight - content.height) / 2 - (content.top - svgRect.top) -
+    (svgRect.top - viewportRect.top);
+  svg.style.transform =
+    `translate3d(0, ${performerView.horizontalBaseYPx.toFixed(2)}px, 0)`;
+}
+
+function prepareComputerVertical(svg, viewport) {
+  const systems = [...svg.querySelectorAll('g.system, .system')];
+  if (!systems.length) return;
+  const viewportRect = viewport.getBoundingClientRect();
+  const firstTwo = unionClientRects(systems.slice(0, 2));
+  const firstRect = systems[0].getBoundingClientRect();
+  const secondRect = systems[1]?.getBoundingClientRect();
+
+  performerView.verticalBaseXPx =
+    (viewport.clientWidth - firstTwo.width) / 2 - (firstTwo.left - viewportRect.left);
+  performerView.verticalBaseYPx =
+    PERFORMER_STAGE_PADDING - (firstRect.top - viewportRect.top);
+  // The scroll step must be at least as tall as each visible system's own rendered box — ledger
+  // lines can make a system visually taller than Verovio's nominal top-to-top spacing, and a step
+  // smaller than that lets the next system overlap/clip the current one as it scrolls through.
+  const measuredStep = secondRect ? Math.max(1, secondRect.top - firstRect.top) : Math.max(1, firstRect.height);
+  const tallestVisible = Math.max(firstRect.height, secondRect ? secondRect.height : 0);
+  performerView.verticalStepPx = Math.max(measuredStep, tallestVisible);
+  positionVerticalScore(currentCycleFloat());
 }
 
 function preparePerformerScore(svg) {
   const layout = activePerformerLayout();
   const viewport = document.getElementById('scoreViewport');
-  if (layout !== 'vertical') viewport.style.height = '';
-  performerView.horizontalOffsetPx = 0;
-  if (layout !== 'vertical') resetVerticalMotion();
-  svg.style.transform = '';
+  viewport.style.height = '';
+
+  // Only reset the scroll/position state when actually ENTERING a different layout. A same-layout
+  // re-render (e.g. the horizontal/vertical buffer refresh every few cycles) must keep the held
+  // offset — renderCurrent() replaces the <svg> element outright, so without this the brand-new
+  // element paints at transform:none (position zero) for a frame before the async remeasure below
+  // corrects it: a visible flash/snap-back that reads as the score jumping or "ending".
+  const freshLayout = performerView._preparedLayout !== layout;
+  performerView._preparedLayout = layout;
+  if (freshLayout) {
+    performerView.horizontalOffsetPx = 0;
+    performerView.horizontalBaseYPx = 0;
+    resetVerticalMotion();
+  }
+
+  if (!document.body.classList.contains('performer')) { svg.style.transform = ''; return; } // dev view
+
+  // Hold the previous frame's position synchronously (before any async remeasure) so there is no
+  // blank/zero frame on a same-layout re-render.
+  if (layout === 'horizontal' && !freshLayout) {
+    svg.style.transform =
+      `translate3d(${performerView.horizontalOffsetPx.toFixed(2)}px, ${performerView.horizontalBaseYPx.toFixed(2)}px, 0)`;
+  } else if (layout === 'vertical' && !freshLayout) {
+    svg.style.transform =
+      `translate3d(${(performerView.verticalBaseXPx || 0).toFixed(2)}px, ${(performerView.verticalOffsetPx || 0).toFixed(2)}px, 0)`;
+  } else {
+    svg.style.transform = '';
+  }
+
+  // Fill this mode's viewport (both size presets; see fitPerformerToViewport).
+  fitPerformerScore(svg, viewport, layout);
 
   if (layout === 'horizontal') {
-    const width = horizontalBufferWidth();
-    // renderToScoreArea sets an inline max-width:100% (a sane page-mode default). It must be
-    // cleared here or it caps the SVG at the viewport width — squeezing all 12 buffered cycles
-    // into one screen (tiny notes) and leaving nothing off-screen to scroll into. width matches
-    // the Verovio pageWidth, so the display scale is ~1 and the staff keeps a readable height.
-    svg.style.maxWidth = 'none';
-    svg.style.height = 'auto';
-    svg.style.width = `${width}px`;
-    // Hold the previous scroll offset for the first frame so a buffer refresh doesn't
-    // flash back to the start; the measure+reposition below lands it exactly.
-    if (performerView.horizontalOffsetPx)
-      svg.style.transform = `translate3d(${performerView.horizontalOffsetPx.toFixed(2)}px, 0, 0)`;
     requestAnimationFrame(() => {
+      alignComputerHorizontal(svg, viewport);
       measureHorizontalLayout(svg, viewport);
       positionHorizontalScore(currentCycleFloat());
     });
     return;
   }
 
-  if (layout !== 'vertical') return;
-  svg.style.maxWidth = 'none';
-  svg.style.width = '100%';
-  // Reuse the previous system spacing for the first frame of a buffer refresh;
-  // the measured value below then corrects it without a visible jump.
-  if (performerView.verticalStepPx > 0) positionVerticalScore(currentCycleFloat());
-  requestAnimationFrame(() => {
-    const systems = [...svg.querySelectorAll('g.system, .system')];
-    const viewportRect = viewport.getBoundingClientRect();
-    const svgRect = svg.getBoundingClientRect();
-    if (systems.length >= 3) {
-      const firstTop = systems[0].getBoundingClientRect().top;
-      const secondTop = systems[1].getBoundingClientRect().top;
-      const thirdTop = systems[2].getBoundingClientRect().top;
-      performerView.verticalStepPx = Math.max(1, secondTop - firstTop);
-      viewport.style.height = `${Math.max(260, thirdTop - viewportRect.top - 4).toFixed(1)}px`;
-    } else {
-      const systemCount = VERTICAL_BUFFER_CYCLES / VERTICAL_SYSTEM_CYCLES;
-      performerView.verticalStepPx = Math.max(1, svgRect.height / systemCount);
-      viewport.style.height = `${Math.max(260, svgRect.height * 2 / systemCount + svgRect.top - viewportRect.top).toFixed(1)}px`;
-    }
-    positionVerticalScore(currentCycleFloat());
-  });
+  if (layout !== 'vertical') {
+    requestAnimationFrame(() => alignComputerPage(svg, viewport));
+    return;
+  }
+
+  requestAnimationFrame(() => prepareComputerVertical(svg, viewport));
 }
 
 // ─── 6. Playback clock ────────────────────────────────────────────────────────
@@ -3527,7 +4284,9 @@ function renderPattern() {
 
     const { mei, stats } = patternToMEI(patInput, cycles, {
       clef, mode, pitchInput, startCycle: playback.windowStart,
-      systemBreakEvery: getSystemBreakEvery()
+      systemBreakEvery: getSystemBreakEvery(),
+      autoClef: document.body.classList.contains('performer'),
+      clefStrategy: activePerformerLayout() === 'horizontal' ? 'ledger' : 'median'
     });
     document.getElementById('meiPre').textContent = mei;
     renderToScoreArea(mei);
@@ -3623,7 +4382,9 @@ function renderLivePattern() {
     pitchInput = inferred.pitchInput;
     const { mei, stats } = patternsToMEI(patterns, cycles, {
       clef, mode, pitchInput, startCycle: playback.windowStart,
-      systemBreakEvery: getSystemBreakEvery()
+      systemBreakEvery: getSystemBreakEvery(),
+      autoClef: document.body.classList.contains('performer'),
+      clefStrategy: activePerformerLayout() === 'horizontal' ? 'ledger' : 'median'
     });
     document.getElementById('meiPre').textContent = mei;
     document.getElementById('meiDetails').style.display = '';
@@ -4101,6 +4862,18 @@ let allChain = [];
 
 function setBridgeDot(state) {
   document.getElementById('bridgeDot').className = 'live-dot' + (state ? ` ${state}` : '');
+  const performerState = document.getElementById('performerBridgeState');
+  if (performerState) {
+    const labels = {
+      connected: 'Bridge connected',
+      connecting: 'Connecting',
+      error: 'Bridge error',
+      idle: 'Bridge idle'
+    };
+    const normalized = state || 'idle';
+    performerState.dataset.state = normalized;
+    performerState.textContent = labels[normalized] || labels.idle;
+  }
 }
 
 function markBridgeUpdate() {
@@ -4115,6 +4888,36 @@ function stripTidalComments(source) {
   }).join('\n');
 }
 
+// Concert-program metadata from Tidal comments: `-- name: …`, `-- instrument: …`,
+// `-- performed by: …` (optional space after `--`, case-insensitive). Populates the
+// performer header. Absent field → blank.
+function parseProgramMeta(source) {
+  const grab = re => { const m = String(source || '').match(re); return m ? m[1].trim() : ''; };
+  return {
+    name:       grab(/^[ \t]*--[ \t]*name[ \t]*:[ \t]*(.+)$/mi),
+    instrument: grab(/^[ \t]*--[ \t]*instrument[ \t]*:[ \t]*(.+)$/mi),
+    performer:  grab(/^[ \t]*--[ \t]*performed[ \t]*by[ \t]*:[ \t]*(.+)$/mi),
+  };
+}
+
+function updateProgramMeta(source) {
+  const meta = parseProgramMeta(source);
+  document.getElementById('pieceName').textContent = meta.name;
+  document.getElementById('pieceInstrument').textContent = meta.instrument;
+  document.getElementById('piecePerformer').textContent = meta.performer ? `performed by ${meta.performer}` : '';
+}
+
+// A continuation line belongs to the `dN $ …` statement above it. It counts as a
+// continuation when it is INDENTED, or (common Tidal style, unindented) when it starts
+// with a chain/effect operator: `$`  `#`  `|…` (|+|, |>, …)  `<~`  `~>`  `+`. Blank lines,
+// comments (`--`), and new `dN`/`all` headers are never continuations.
+function isTidalContinuationLine(line) {
+  const s = String(line).trim();
+  if (!s || s.startsWith('--')) return false;
+  if (/^_?(?:d\d+|all)\b\s*\$/.test(s)) return false;
+  return /^\s+\S/.test(line) || /^(\$|#|\||<~|~>|\+)/.test(s);
+}
+
 function joinTidalContinuationLines(source) {
   const lines = String(source).split(/\r?\n/);
   const out = [];
@@ -4123,7 +4926,7 @@ function joinTidalContinuationLines(source) {
     if (/^\s*(?:d\d+|all)\b\s*\$/.test(line)) {
       if (current) out.push(current);
       current = line.trim();
-    } else if (current && /^\s+/.test(line) && line.trim()) {
+    } else if (current && isTidalContinuationLine(line)) {
       current += ' ' + line.trim();
     } else {
       if (current) {
@@ -4240,30 +5043,82 @@ function transformArpgPattern(pattern) {
   return arpLayers.map(layer => layer.map(serializePatternElement).join(' ')).join(', ');
 }
 
+// A space-separated arp mode list ("updown thumbup") subdivides EACH cycle into N equal
+// time slots — first slot updown, second thumbup, etc. (Tidal's `arp` innerJoins the mode
+// pattern over the chord). So a chord that spans several mode slots is arpeggiated by each
+// slot's mode over its own time-slice; a chord that sits inside a single slot uses that one
+// mode (the aligned M chords == N modes case, and single-mode arps, stay a flat arpeggio).
+// We track each element's [a,b) time span while walking the parsed pattern.
 function transformPatternWithArpModes(pattern, modePattern) {
   let layers;
   try { layers = promotePoly(parseTokens(tokenise(pattern), 0).layers); }
   catch { return null; }
   const modes = cycleModeValues(modePattern);
-  const state = { i: 0 };
-  const apply = el => {
+  const N = modes.length || 1;
+  const EPS = 1e-9;
+
+  // Arpeggiate one chord (values) occupying [a,b) under the N mode slots it overlaps.
+  const arpChord = (values, a, b, prob) => {
+    const span = b - a;
+    const slots = [];
+    for (let i = 0; i < N; i++) {
+      const os = Math.max(a, i / N), oe = Math.min(b, (i + 1) / N);
+      if (oe - os > EPS) slots.push({ mode: modes[i] || 'up', os, oe });
+    }
+    if (slots.length <= 1) {
+      const mode = slots.length ? slots[0].mode : (modes[0] || 'up');
+      return { type: 'group', weight: 1,
+        children: orderedArpValues(values, mode).map(value => ({ type: 'leaf', value, weight: 1, prob })) };
+    }
+    // Multiple modes cover this chord → one sub-group per slot, each holding that mode's
+    // arpeggio notes whose onsets fall in the slot. Equal slots serialise as [[..][..]].
+    const subGroups = slots.map(({ mode, os, oe }) => {
+      const arp = orderedArpValues(values, mode);
+      const K = arp.length;
+      const j0 = Math.round(((os - a) / span) * K);
+      const j1 = Math.round(((oe - a) / span) * K);
+      const slice = arp.slice(j0, j1);
+      const notes = slice.length ? slice : [arp[Math.min(K - 1, j0)] || values[0]];
+      return { type: 'group', weight: 1, children: notes.map(value => ({ type: 'leaf', value, weight: 1, prob })) };
+    });
+    return { type: 'group', weight: 1, children: subGroups };
+  };
+
+  const mapSpan = (el, a, b) => {
     if (el.type === 'leaf') {
       const values = chordLeafNames(el.value);
-      if (!values) return el;
-      const mode = modes.length ? modes[state.i % modes.length] : 'up';
-      state.i++;
-      return {
-        type: 'group',
-        children: orderedArpValues(values, mode).map(value => ({ type: 'leaf', value, weight: 1, prob: el.prob })),
-        weight: el.weight
-      };
+      if (!values || values.length < 2) return el; // single notes / non-chords untouched
+      return { ...arpChord(values, a, b, el.prob), weight: el.weight };
     }
-    if (el.children) return { ...el, children: el.children.map(apply) };
-    if (el.alternatives) return { ...el, alternatives: el.alternatives.map(apply) };
-    if (el.inner) return { ...el, inner: apply(el.inner) };
+    if (el.children) {
+      const tw = el.children.reduce((s, c) => s + (c.weight || 1), 0) || 1;
+      let acc = 0;
+      const children = el.children.map(c => {
+        const w = c.weight || 1;
+        const ca = a + (acc / tw) * (b - a), cb = a + ((acc + w) / tw) * (b - a);
+        acc += w;
+        return mapSpan(c, ca, cb);
+      });
+      return { ...el, children };
+    }
+    // `<…>` alternatives each occupy the full parent span on the cycle they play.
+    if (el.alternatives) return { ...el, alternatives: el.alternatives.map(alt => mapSpan(alt, a, b)) };
+    if (el.inner) return { ...el, inner: mapSpan(el.inner, a, b) };
     return el;
   };
-  const arpLayers = layers.map(layer => layer.map(apply));
+
+  const arpLayer = layer => {
+    const tw = layer.reduce((s, el) => s + (el.weight || 1), 0) || 1;
+    let acc = 0;
+    return layer.map(el => {
+      const w = el.weight || 1;
+      const a = acc / tw, b = (acc + w) / tw;
+      acc += w;
+      return mapSpan(el, a, b);
+    });
+  };
+
+  const arpLayers = layers.map(arpLayer);
   return arpLayers.map(layer => layer.map(serializePatternElement).join(' ')).join(', ');
 }
 
@@ -4481,6 +5336,9 @@ function handleBridgeMessage(message) {
   }
 
   if (message.type === 'source-update' && typeof message.source === 'string') {
+    // Concert-program metadata comes from `-- name/instrument/performed by` comments in the
+    // RAW source (parse before stripTidalComments removes them). Shown in the performer header.
+    updateProgramMeta(message.source);
     const activeSource = stripTidalComments(message.source);
     let sourceForRegex = joinTidalContinuationLines(activeSource);
     // Matches both `setcps (135/60/4)` and bare `setcps 0.55`; `setbpm 120`
@@ -4792,10 +5650,25 @@ document.getElementById('staffSourceOpt').addEventListener('change', () => {
 });
 
 document.querySelectorAll('[data-performer-layout]').forEach(btn => {
-  btn.addEventListener('click', () => setPerformerLayout(btn.dataset.performerLayout));
+  btn.addEventListener('click', () => {
+    if (btn.dataset.pageBars) performerView.pageBars = Number(btn.dataset.pageBars);
+    setPerformerLayout(btn.dataset.performerLayout);
+  });
 });
-document.getElementById('performerFollowBtn').addEventListener('click', togglePerformerFollow);
-
+document.querySelectorAll('.performer-theme-btn[data-performer-theme]').forEach(btn => {
+  btn.addEventListener('click', () => setPerformerTheme(btn.dataset.performerTheme));
+});
+document.querySelectorAll('[data-size-preset]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setPerformerSizePreset(btn.dataset.sizePreset);
+  });
+});
+let performerResizeTimer = null;
+window.addEventListener('resize', () => {
+  if (!document.body.classList.contains('performer') || performerView.sizePreset !== 'computer') return;
+  clearTimeout(performerResizeTimer);
+  performerResizeTimer = setTimeout(renderCurrent, 140);
+});
 // Played-staff re-render, trailing-coalesced: Verovio layout costs tens of
 // ms, so cap staff refreshes at ~5/s while events stream in.
 let playedStaffTimer = null;
@@ -4832,6 +5705,9 @@ document.addEventListener('keydown', e => {
 });
 
 // Boot
+setPerformerSizePreset('computer', { render: false });
+try { setPerformerTheme(localStorage.getItem('performerTheme') || 'blue'); }
+catch { setPerformerTheme('blue'); }
 updateCpsDisplay();
 updateCycleUI(null);
 updatePerformerToolbar();
