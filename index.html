@@ -2253,9 +2253,13 @@ function parseChainSegment(seg) {
     return { fn: choiceM[1], items, raw: seg.trim() };
   }
 
-  const scaleM = seg.trim().match(/^(scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?(?:\s+"?([a-gA-G][sf#b]?\d*)"?)?$/);
+  const scaleM = seg.trim().match(/^(scale|toScale)\s+(?:"([^"]+)"|(\S+))(?:\s+"?([a-gA-G][sf#b]?-?\d*)"?)?$/);
   if (scaleM) {
-    return { fn: 'scale', scale: scaleM[2], root: scaleM[3] || 'c5', raw: seg.trim() };
+    const scaleArg = scaleM[2] !== undefined ? scaleM[2] : scaleM[3];
+    let scaleTree;
+    try { scaleTree = parseTokens(tokenise(scaleArg), 0).layers[0]; }
+    catch { scaleTree = [{ type: 'leaf', value: scaleArg, weight: 1 }]; }
+    return { fn: 'scale', scale: scaleArg, scaleTree, root: scaleM[4] || 'c5', raw: seg.trim() };
   }
 
   const arpQuotedM = seg.trim().match(/^(arp|arpg|arpeggiate)\s+"([^"]+)"$/);
@@ -2769,8 +2773,15 @@ function applyTransform(elements, t, cycleIndex) {
       return swingElements(elements, 1/3, t.n || 4, cycleIndex);
     case 'swingBy':
       return swingElements(elements, t.amount, t.slices, cycleIndex);
-    case 'scale':
-      return scaleValues(elements, t.scale, t.root);
+    case 'scale': {
+      const tree = (t.scaleTree && t.scaleTree.length) ? t.scaleTree : [{ type: 'leaf', value: t.scale, weight: 1 }];
+      const { el: resolved } = resolveNode(tree[0], cycleIndex);
+      const leafVal = resolved.type === 'leaf' ? resolved.value : t.scale;
+      const { root, scaleName } = parseScaleToken(leafVal);
+      const mapped = scaleValues(elements, scaleName, root || t.root || 'c5');
+      const prob = resolved.prob;
+      return (prob !== undefined && prob < 1) ? mapped.map(el => applyProb(el, prob)) : mapped;
+    }
     case 'arp':
       return arpElements(elements, cycleModeValue(t.mode, cycleIndex, 'up'));
     case 'rolled':
@@ -3290,6 +3301,16 @@ function parseChord(val) {
     midis.sort((a, b) => a - b);
   }
   return { chord: midis.map(midiNumberToPitchInfo), rest: false };
+}
+
+// "c4:ritusen" -> { root: 'c4', scaleName: 'ritusen' }; "minorPentatonic" -> { root: null, scaleName: 'minorPentatonic' }
+function parseScaleToken(tok) {
+  const s = String(tok);
+  const idx = s.indexOf(':');
+  if (idx > 0 && /^[a-gA-G](?:[sf#b])?\d*$/.test(s.slice(0, idx))) {
+    return { root: s.slice(0, idx), scaleName: s.slice(idx + 1) };
+  }
+  return { root: null, scaleName: s };
 }
 
 function degreeToMidi(degree, scaleName = 'major', root = 'c5') {
@@ -5904,7 +5925,7 @@ let bridgeAutoReconnect = false;
 // Captures: dN, the function-chain text between the first `$`, the pattern
 // function kind, and the quoted mini-notation.
 const TIDAL_LINE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(sound|s|note|n)\s+"([^"]+)"/g;
-const TIDAL_SCALE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\((scale|toScale)\s+"?([A-Za-z0-9#_-]+)"?\s+"([^"]+)"\)/g;
+const TIDAL_SCALE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\((scale|toScale)\s+"([^"]+)"\s*(?:\$\s*)?"([^"]+)"\)\)?/g;
 const TIDAL_ARP_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\(\s*(arp|arpg|arpeggiate)\s+"([^"]+)"\s+"([^"]+)"\s*\)/g;
 const TIDAL_ARPG_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(note|n)\s+\(\s*(arpg|arpeggiate)\s+"([^"]+)"\s*\)/g;
 const TIDAL_CHOOSE_RE = /\b(d\d+)\b\s*\$\s*(.*?)\b(sound|s|note|n)\s+\((choose|cycleChoose|wchoose)\s+\[([^\]]+)\]\)/g;
@@ -6506,12 +6527,15 @@ function handleBridgeMessage(message) {
 
     TIDAL_SCALE_RE.lastIndex = 0;
     while ((match = TIDAL_SCALE_RE.exec(sourceForRegex))) {
-      const [, line, chainText, kind, , scaleName, degrees] = match;
+      const [, line, chainText, kind, , scaleNamePattern, degrees] = match;
+      let scaleTree;
+      try { scaleTree = parseTokens(tokenise(scaleNamePattern), 0).layers[0]; }
+      catch { scaleTree = [{ type: 'leaf', value: scaleNamePattern, weight: 1 }]; }
       activeLines.add(line);
       handledExprLines.add(line);
       applyPatternToLine(line, degrees, {
         flag: line === message.selectedLine,
-        chain: [...parseChain(chainText), { fn: 'scale', scale: scaleName, root: 'c5', raw: `scale "${scaleName}"` }],
+        chain: [...parseChain(chainText), { fn: 'scale', scale: scaleNamePattern, scaleTree, root: 'c5', raw: `scale "${scaleNamePattern}"` }],
         kind,
         sourceManaged: true,
         pitchInput: 'name'
