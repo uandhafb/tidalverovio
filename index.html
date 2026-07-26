@@ -2023,7 +2023,7 @@ const SUPPORTED_FNS = new Set([
   'repeatCycles', 'jux', 'juxBy', 'superimpose', 'iter', "iter'", 'degradeBy', 'unDegradeBy',
   'euclid', 'euclidInv', 'euclidOff', 'euclidFull', 'whenmod', 'rot', 'struct',
   'mask', 'sew', 'stitch', 'inv', 'choose', 'wchoose', 'cycleChoose',
-  'slow', 'sparsity', 'fastGap', 'densityGap', 'compress', 'zoom', 'within', 'off',
+  'slow', 'sparsity', 'fastGap', 'densityGap', 'compress', 'zoom', 'within', 'off', 'chunk', "chunk'",
   'press', 'pressBy', 'swing', 'swingBy', 'scale', 'toScale', 'arp', 'arpg', 'arpeggiate',
   'rolled', 'rolledBy', 'layer'
 ]);
@@ -2244,6 +2244,14 @@ function parseChainSegment(seg) {
     const inner = parseChainSegment(offM[2]);
     if (amount === null || !inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
     return { fn: 'off', amount, inner, raw: seg.trim() };
+  }
+
+  const chunkM = seg.trim().match(/^(chunk'?)\s+(\d+)\s+(.+)$/);
+  if (chunkM) {
+    const n = parseInt(chunkM[2]);
+    const inner = parseChainSegment(chunkM[3]);
+    if (!Number.isInteger(n) || n < 1 || !inner || inner.fn === '?') return { fn: '?', raw: seg.trim() };
+    return { fn: chunkM[1], n, inner, raw: seg.trim() };
   }
 
   const choiceM = seg.trim().match(/^(choose|cycleChoose|wchoose)\s+(.+)$/);
@@ -2932,6 +2940,29 @@ function applyTransformLayers(layers, t, cycleIndex) {
         if (t.start > 0) out.push({ type: 'leaf', value: '~', weight: t.start });
         out.push({ type: 'group', children: extra, weight: t.end - t.start });
         if (t.end < 1) out.push({ type: 'leaf', value: '~', weight: 1 - t.end });
+        return out;
+      });
+      return [primary, ...extras];
+    });
+  }
+  if (t.fn === 'chunk' || t.fn === "chunk'") {
+    const rawIdx = ((cycleIndex % t.n) + t.n) % t.n;
+    const sliceIdx = t.fn === "chunk'" ? (t.n - 1 - rawIdx) : rawIdx;
+    const start = sliceIdx / t.n, end = (sliceIdx + 1) / t.n;
+    return layers.flatMap(layer => {
+      const before = start > 0 ? sliceElements(layer, 0, start, cycleIndex) : [];
+      const middle = sliceElements(layer, start, end, cycleIndex);
+      const after = end < 1 ? sliceElements(layer, end, 1, cycleIndex) : [];
+      const transformed = applyTransformLayers([middle], t.inner, cycleIndex);
+      const primary = [];
+      if (before.length) primary.push({ type: 'group', children: before, weight: start });
+      primary.push({ type: 'group', children: transformed[0] || middle, weight: end - start });
+      if (after.length) primary.push({ type: 'group', children: after, weight: 1 - end });
+      const extras = transformed.slice(1).map(extra => {
+        const out = [];
+        if (start > 0) out.push({ type: 'leaf', value: '~', weight: start });
+        out.push({ type: 'group', children: extra, weight: end - start });
+        if (end < 1) out.push({ type: 'leaf', value: '~', weight: 1 - end });
         return out;
       });
       return [primary, ...extras];
@@ -5351,7 +5382,7 @@ function renderLivePattern() {
 
   // Played (live) staff: notate the real OSC events of the displayed
   // cycles, one staff per orbit seen — everything Tidal actually plays
-  // (chunk, sometimes, chop...) becomes notation, grid-quantized.
+  // (sometimes, chop...) becomes notation, grid-quantized.
   if (document.getElementById('staffSourceOpt').value === 'played') {
     const orbits = new Set();
     for (let ci = playback.windowStart; ci < playback.windowStart + cycles; ci++)
