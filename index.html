@@ -1408,6 +1408,10 @@
           <select id="clefOpt">
             <option value="treble" selected>Treble</option>
             <option value="bass">Bass</option>
+            <option value="alto">Alto (viola)</option>
+            <option value="tenor">Tenor (violoncello)</option>
+            <option value="alto-adaptive">Alto (viola, adaptive → treble above D5)</option>
+            <option value="tenor-adaptive">Tenor (violoncello, adaptive → treble above D5)</option>
           </select>
         </label>
       </div>
@@ -3245,9 +3249,26 @@ function parseNote(val, pitchInput = 'name') {
   return { pname: m[1], acc, oct: typedOct - 1, rest: false };
 }
 
+// Standard MEI clef encoding + the pitch sitting on each clef's middle staff line (used as the
+// approximated/fallback reference pitch — see clefMiddlePitch below). Alto's middle line IS middle
+// C (the C clef centered on line 3); tenor's middle line is a third below the 4th-line middle C.
+const CLEF_INFO = {
+  treble: { shape: 'G', line: '2', mid: { pname: 'b', oct: 4 } },
+  bass:   { shape: 'F', line: '4', mid: { pname: 'd', oct: 3 } },
+  alto:   { shape: 'C', line: '3', mid: { pname: 'c', oct: 4 } },
+  tenor:  { shape: 'C', line: '4', mid: { pname: 'a', oct: 3 } },
+};
+
 function clefMiddlePitch(clef) {
-  return clef === 'treble' ? { pname: 'b', oct: 4 } : { pname: 'd', oct: 3 };
+  return (CLEF_INFO[clef] || CLEF_INFO.treble).mid;
 }
+
+// "Adaptive" Alto/Tenor: switches to treble when a window's material goes higher than a real
+// orchestral part would keep in Alto/Tenor (too many ledger lines above the staff) — unlike plain
+// Alto/Tenor (CLEF_INFO above), which never auto-switches once chosen. pitchRank is defined further
+// down but hoisted (function declaration), safe to reference here.
+const ADAPTIVE_CLEF_BASE = { 'alto-adaptive': 'alto', 'tenor-adaptive': 'tenor' };
+const ADAPTIVE_TREBLE_THRESHOLD = pitchRank({ pname: 'd', oct: 5 }); // D5 (Tidal note-name "d6")
 
 function collectPitchRanks(elements, pitchInput, out) {
   for (const el of elements || []) {
@@ -3711,8 +3732,12 @@ function patternsToMEI(patterns, numCycles, {
   playedApproximated = 0; // drum-map pre-pass may have walked the same events
 
   const staffLines = isRhythm ? (isDrumKit ? '5' : '1') : '5';
-  const clefShape  = isRhythm ? 'perc' : (clef === 'treble' ? 'G' : 'F');
-  const clefLine   = isRhythm ? (isDrumKit ? '3' : '1') : (clef === 'treble' ? '2' : '4');
+  // Outer default only — the real per-staff decision for adaptive clefs happens in the resolve
+  // loop below, which always overrides this. Falls back through the adaptive's own base clef
+  // (alto/tenor) rather than straight to treble, so this default is never semantically wrong even
+  // if some future code path reads it before that loop runs.
+  const clefShape  = isRhythm ? 'perc' : (CLEF_INFO[clef] || CLEF_INFO[ADAPTIVE_CLEF_BASE[clef]] || CLEF_INFO.treble).shape;
+  const clefLine   = isRhythm ? (isDrumKit ? '3' : '1') : (CLEF_INFO[clef] || CLEF_INFO[ADAPTIVE_CLEF_BASE[clef]] || CLEF_INFO.treble).line;
   const singleSpot = { pname: 'b', oct: 4, head: null };
   const fixedPitch = isRhythm
     ? (isDrumKit ? (v => drumMap.get(v) || singleSpot) : singleSpot)
@@ -3726,15 +3751,17 @@ function patternsToMEI(patterns, numCycles, {
       .join(' < ');
   }
 
-  const measureEls = [];
+  // Pre-pass: walk every staff × cycle in this window ONCE, caching each staff's per-cycle content
+  // and (for autoClef / adaptive clefs) its pitch ranks — needed BEFORE any clef decision. The
+  // invisible in-layer <clef> (horizontal continuation chunks, see showClefLabel doc above) is
+  // written at the window's very first cycle, but its shape/line must reflect the WHOLE window's
+  // pitch content, not just that first cycle — hence resolving clefs only after this full pass.
+  const cachedCycles = parsed.map(() => []); // [idx][c-startCycle] = { contentCycle, cycleLayers }
   for (let c = startCycle; c < startCycle + numCycles; c++) {
-    const measureIndex = c - startCycle + 1;
-    const measureN = absoluteMeasureNumbers ? c + 1 : measureIndex;
-    const staffEls = parsed.map((p, idx) => {
-      // jux rotates orig/rev/both over 3 cycles (phase = c%3, chosen in
-      // applyChain). To let each alternation branch be seen through a full
-      // rotation, resolve pattern CONTENT at a 3× slower cycle so `<A B>`
-      // holds A for cycles 0-2 (orig/rev/both), then B for 3-5. Display-only:
+    parsed.forEach((p, idx) => {
+      // jux rotates orig/rev/both over 3 cycles (phase = c%3, chosen in applyChain). To let each
+      // alternation branch be seen through a full rotation, resolve pattern CONTENT at a 3× slower
+      // cycle so `<A B>` holds A for cycles 0-2 (orig/rev/both), then B for 3-5. Display-only:
       // Tidal still swaps the branch every cycle in the audio.
       const juxActive = (p.chain || []).some(t => t.fn === 'jux');
       const contentCycle = juxActive ? Math.floor(c / 3) : c;
@@ -3742,8 +3769,48 @@ function patternsToMEI(patterns, numCycles, {
       const cycleLayers = p.grandStaffHalf
         ? sourceLayers.map(layer => grandStaffElementsForHalf(layer, p.grandStaffHalf, pitchInput))
         : sourceLayers;
-      if (!isRhythm && autoClef && !p.grandStaffHalf)
+      cachedCycles[idx].push({ contentCycle, cycleLayers });
+      if (!isRhythm && (autoClef || ADAPTIVE_CLEF_BASE[clef]) && !p.grandStaffHalf)
         for (const layer of cycleLayers) collectPitchRanks(layer, pitchInput, staffPitchRanks[idx]);
+    });
+  }
+
+  // Resolve each staff's clef ONCE for the whole window — reused by the visible staffDef (first
+  // chunk / page / vertical) and the invisible in-layer clef (horizontal continuation chunks)
+  // alike, so the two always agree instead of drifting out of sync.
+  const staffClefShape = [], staffClefLine = [];
+  parsed.forEach((p, idx) => {
+    let shape = clefShape, line = clefLine;
+    if (p.grandStaffHalf) {
+      shape = p.grandStaffHalf === 'bass' ? 'F' : 'G';
+      line = p.grandStaffHalf === 'bass' ? '4' : '2';
+    } else if (!isRhythm && ADAPTIVE_CLEF_BASE[clef]) {
+      // Real orchestral viola/cello parts switch to treble when a passage runs high enough that
+      // Alto/Tenor would need many ledger lines above the staff — unlike plain Alto/Tenor
+      // (below), which never auto-switches once chosen. Rhythm mode keeps its percussion clef
+      // (the outer clefShape/clefLine default already handles that) regardless of this selector.
+      const ranks = staffPitchRanks[idx];
+      const high = ranks.length ? Math.max(...ranks) : -Infinity;
+      const resolved = high > ADAPTIVE_TREBLE_THRESHOLD ? 'treble' : ADAPTIVE_CLEF_BASE[clef];
+      shape = CLEF_INFO[resolved].shape; line = CLEF_INFO[resolved].line;
+    } else if (!isRhythm && autoClef && (clef === 'treble' || clef === 'bass')) {
+      // Auto-picking bass/treble per voice only makes sense within that binary system. Alto/Tenor
+      // are a deliberate, idiomatic instrument choice (viola/cello parts don't auto-flip to a
+      // treble/bass heuristic) — once chosen, use it exactly as selected, every voice, every chunk.
+      const staffClef = clefForPitchRanks(staffPitchRanks[idx], clef, clefStrategy);
+      shape = staffClef === 'bass' ? 'F' : 'G';
+      line = staffClef === 'bass' ? '4' : '2';
+    }
+    staffClefShape.push(shape);
+    staffClefLine.push(line);
+  });
+
+  const measureEls = [];
+  for (let c = startCycle; c < startCycle + numCycles; c++) {
+    const measureIndex = c - startCycle + 1;
+    const measureN = absoluteMeasureNumbers ? c + 1 : measureIndex;
+    const staffEls = parsed.map((p, idx) => {
+      const { contentCycle, cycleLayers } = cachedCycles[idx][measureIndex - 1];
       const layerEls = cycleLayers.map((layerElements, li) => {
         const items = buildMEIItems(
           layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats,
@@ -3753,7 +3820,7 @@ function patternsToMEI(patterns, numCycles, {
         // Zero-space clef: see showClefLabel doc above — carries pitch context forward for the
         // whole document without Verovio drawing or reserving room for it.
         const invisibleClef = (!showClefLabel && c === startCycle && li === 0)
-          ? `<clef shape="${clefShape}" line="${clefLine}" visible="false"/>\n            ` : '';
+          ? `<clef shape="${staffClefShape[idx]}" line="${staffClefLine[idx]}" visible="false"/>\n            ` : '';
         return `\n          <layer n="${li + 1}">\n            ${invisibleClef}${items.join('\n            ')}\n          </layer>`;
       });
       return `\n        <staff n="${idx + 1}">${layerEls.join('')}\n        </staff>`;
@@ -3765,17 +3832,7 @@ function patternsToMEI(patterns, numCycles, {
 
   const staffDefXml = parsed.map((p, idx) => {
     if (!showClefLabel) return `<staffDef n="${idx + 1}" lines="${staffLines}"/>`;
-    let shape = clefShape;
-    let line = clefLine;
-    if (p.grandStaffHalf) {
-      shape = p.grandStaffHalf === 'bass' ? 'F' : 'G';
-      line = p.grandStaffHalf === 'bass' ? '4' : '2';
-    } else if (!isRhythm && autoClef) {
-      const staffClef = clefForPitchRanks(staffPitchRanks[idx], clef, clefStrategy);
-      shape = staffClef === 'bass' ? 'F' : 'G';
-      line = staffClef === 'bass' ? '4' : '2';
-    }
-    return `<staffDef n="${idx + 1}" lines="${staffLines}" clef.shape="${shape}" clef.line="${line}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`;
+    return `<staffDef n="${idx + 1}" lines="${staffLines}" clef.shape="${staffClefShape[idx]}" clef.line="${staffClefLine[idx]}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`;
   });
   const groupedStaffDefs = [];
   for (let idx = 0; idx < parsed.length; idx++) {
