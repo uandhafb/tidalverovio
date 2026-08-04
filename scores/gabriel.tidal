@@ -1,0 +1,41 @@
+let jitusen = [0, 203.91, 701.96, 884.36, 1200, 1403.91, 1901.96, 2084.36, 2400, 2603.91]
+    degToFreq :: Double -> Double
+    degToFreq d = 49.00 * (2 ** ((jitusen !! round d) / 1200))
+
+let strange = [0, 231.17, 498.04, 702.96, 968.83, 1200, 1431.17, 1698.04, 1902.96, 2168.83]
+    degToFreq :: Double -> Double
+    degToFreq d = 49.00 * (2 ** ((strange !! round d) / 1200))
+
+    -- just intonation
+d3 $ degradeBy 0.9 $ slow 1 $ freq (fmap degToFreq "1 1 1 1 1 2 2 2 2 8")
+    # s "fmsynth"
+    -- # sustain "1.5!12 8"
+    # sustain "32"
+    # gain 0.6
+    # lpf 1000
+    # freq (4 * irand 100)
+    # pan (range 0 1 $ slow 1 sine)
+    # orbit 0
+
+d3 $ silence
+
+
+d1 $ fast 2.7 $ s "<[fmsynth*2?0.2]!5 fmsynth*4>" # freq "<55 110 27>"
+  # sustain 6
+  -- # release 1
+  # gain 0.7
+  # orbit 0
+
+d1 $ silence
+
+
+-- d5 $ degradeBy 0.5 $ n "<[~ 16!4 16*8] <[~ 16!4 [8*8 8*4]] [~ 16!4 [16*8]]>>"
+d5 $ degradeBy 0.5 $ n "<[~ [16!4]? 16*1]>"
+  # s "yeah"
+  # gain 0.5
+  # krush (irand 4)
+  # room 1.0
+  # size 0.9
+  # dry 0.0
+
+d5 $ silence
