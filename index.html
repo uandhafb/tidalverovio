@@ -9,6 +9,28 @@
      a live performance. -->
 <script src="verovio-toolkit-wasm.js"></script>
 <style>
+  @font-face {
+    font-family: "Syne";
+    src: url("assets/fonts/syne-700.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "IBM Plex Mono";
+    src: url("assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "IBM Plex Mono";
+    src: url("assets/fonts/ibm-plex-mono-600.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+  }
+
   :root {
     color-scheme: light;
     --bg: #f7f5ef;
@@ -101,6 +123,7 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     box-shadow: var(--shadow);
+    min-width: 0;
   }
 
   .controls {
@@ -292,7 +315,9 @@
   .live-dot.error      { background: var(--bad); }
 
   /* Score column */
-  .score-wrap { display: grid; gap: 14px; }
+  /* Explicit minmax(0,1fr) column: without it the implicit `auto` track sizes to the panel's
+     max-content, which the oversized horizontal-scroll SVG blows out to its own width. */
+  .score-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 
   .score-header {
     display: flex;
@@ -326,6 +351,90 @@
   }
 
   #scoreArea svg { max-width: 100%; height: auto; }
+
+  .score-viewport {
+    position: relative;
+    overflow: hidden;
+    min-width: 0;
+    background: #fffdfa;
+  }
+
+  .performer-toolbar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 94%, var(--accent) 6%);
+    flex-wrap: wrap;
+  }
+
+  .performer-toolbar-label {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .performer-layout-options {
+    display: inline-flex;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--bg);
+  }
+
+  .performer-layout-btn {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 750;
+    padding: 7px 11px;
+    cursor: pointer;
+  }
+
+  .performer-layout-btn[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .performer-layout-status {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .performer-layout-status.warning { color: var(--warn); }
+
+  .performer-playhead {
+    display: none;
+    position: absolute;
+    z-index: 6;
+    top: 12px;
+    bottom: 12px;
+    left: 28%;
+    width: 2px;
+    pointer-events: none;
+    background: var(--bad);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75), 0 0 12px rgba(224, 92, 92, 0.45);
+  }
+
+  .performer-playhead::before {
+    content: "NOW";
+    position: absolute;
+    top: 0;
+    left: 6px;
+    color: var(--bad);
+    font-size: 0.65rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+  }
 
   .placeholder {
     text-align: center;
@@ -508,6 +617,7 @@
     color-scheme: dark;
   }
   body.dark #scoreArea,
+  body.dark .score-viewport,
   body.dark .render-status,
   body.dark .graphic-track,
   body.dark .mini-track { background: #23272d; }
@@ -525,20 +635,670 @@
   body.dark .event-chip { background: #23272d; }
   body.dark .status-pill { background: rgba(29, 33, 38, 0.7); }
 
-  /* ── Performer mode: only the score column, big ────────────────────────── */
+  /* ── Performer mode: Signal / Score ─────────────────────────────────────
+     The frame can be expressive; the notation field remains quiet, stable and
+     high-contrast for musicians reading at performance distance. */
   body.performer .controls,
   body.performer header,
   body.performer #eventDetails,
   body.performer #meiDetails { display: none !important; }
-  body.performer .workspace { grid-template-columns: 1fr; margin-top: 8px; }
-  body.performer main { width: min(1600px, calc(100% - 24px)); padding: 8px 0 16px; }
+
+  body.performer {
+    --performer-accent: #3347ff;
+    --performer-secondary: #f2b7d3;
+    --performer-paper: #f5f0e6;
+    --performer-ink: #171714;
+    --performer-muted: #56534d;
+    --performer-surface: #e9e3d9;
+    background: var(--performer-accent);
+    color: var(--performer-ink);
+    font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  }
+  body.performer[data-performer-theme="pink"] {
+    --performer-accent: #ff5b9d;
+    --performer-secondary: #6f173b;
+    --performer-paper: #fff2e8;
+    --performer-ink: #201016;
+    --performer-muted: #725764;
+    --performer-surface: #f2d7df;
+  }
+  body.performer[data-performer-theme="acid"] {
+    --performer-accent: #d9ff43;
+    --performer-secondary: #20201c;
+    --performer-paper: #f6f3e8;
+    --performer-ink: #171714;
+    --performer-muted: #5c5b52;
+    --performer-surface: #e5e9c9;
+  }
+  body.performer[data-performer-theme="cream"] {
+    --performer-accent: #e26d4f;
+    --performer-secondary: #3d1837;
+    --performer-paper: #f5edda;
+    --performer-ink: #251a20;
+    --performer-muted: #6b5c60;
+    --performer-surface: #e8d8bf;
+  }
+
+  /* minmax(0,1fr) + min-width:0 stop the oversized horizontal-scroll SVG from blowing the
+     grid track out to its own width (which would drag the viewport as wide as the score, so
+     nothing overflows and there is nothing to scroll). The viewport stays at page width and
+     the wide buffered score overflows it (clipped), giving the intended 4-visible / 12-buffered. */
+  body.performer .workspace { grid-template-columns: minmax(0, 1fr); margin-top: 0; }
+  body.performer main {
+    width: min(1600px, calc(100% - 28px));
+    min-width: 0;
+    padding: 14px 0 18px;
+  }
+  body.performer .panel {
+    border: 1.5px solid var(--performer-ink);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  body.performer #staffPanel { background: var(--performer-paper); }
+  body.performer .performer-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+    align-items: end;
+    gap: 14px 22px;
+    padding: 15px 20px 13px;
+    border-bottom: 1.5px solid var(--performer-ink);
+    background: var(--performer-secondary);
+    color: var(--performer-ink);
+  }
+  body.performer[data-performer-theme="pink"] .performer-toolbar,
+  body.performer[data-performer-theme="acid"] .performer-toolbar,
+  body.performer[data-performer-theme="cream"] .performer-toolbar {
+    color: var(--performer-paper);
+  }
+  body.performer .performer-control-cluster {
+    display: grid;
+    align-content: end;
+    gap: 7px;
+    min-width: 0;
+  }
+  body.performer .performer-toolbar-label {
+    color: currentColor;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+  }
+  body.performer .performer-layout-options,
+  body.performer .performer-theme-options {
+    display: flex;
+    gap: 6px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    flex-wrap: wrap;
+  }
+  body.performer .performer-layout-btn,
+  body.performer .performer-theme-btn {
+    min-height: 35px;
+    border: 1.5px solid currentColor;
+    border-radius: 0;
+    background: transparent;
+    color: currentColor;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.035em;
+    line-height: 1;
+    padding: 9px 11px;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  body.performer .performer-layout-btn[aria-pressed="true"],
+  body.performer .performer-theme-btn[aria-pressed="true"] {
+    border-color: var(--performer-ink);
+    background: var(--performer-ink);
+    color: var(--performer-paper);
+    box-shadow: none;
+  }
+  body.performer[data-performer-theme="pink"] .performer-layout-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="pink"] .performer-theme-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="acid"] .performer-layout-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="acid"] .performer-theme-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="cream"] .performer-layout-btn[aria-pressed="true"],
+  body.performer[data-performer-theme="cream"] .performer-theme-btn[aria-pressed="true"] {
+    border-color: var(--performer-paper);
+    background: var(--performer-paper);
+    color: var(--performer-ink);
+  }
+  body.performer .performer-theme-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  body.performer .performer-theme-swatch {
+    width: 9px;
+    height: 9px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    background: var(--swatch);
+    flex: 0 0 auto;
+  }
+  body.performer .performer-layout-btn:focus-visible,
+  body.performer .performer-theme-btn:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+  }
+  body.performer .performer-layout-status {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: currentColor;
+    font-size: 0.67rem;
+    line-height: 1.4;
+    opacity: 0.76;
+  }
+  body.performer .performer-layout-status.warning {
+    color: currentColor;
+    opacity: 1;
+    font-weight: 600;
+  }
   body.performer #scoreArea { min-height: 46vh; }
   body.performer #scoreArea > svg { width: 96%; height: auto; max-height: 62vh; }
-  body.performer .cycle-pulse { width: 92px; height: 92px; }
-  body.performer .cycle-pulse span { font-size: 1.6rem; }
-  body.performer .score-header { padding: 18px 22px; }
+  body.performer .score-viewport,
+  body.performer #scoreArea {
+    background: var(--performer-paper);
+    border-radius: 0;
+  }
+  body.performer .render-status { display: none; }
+  body.performer .score-header { padding: 20px 22px 22px; }
   body.performer .score-title h2 { font-size: 1.35rem; }
   body.performer .score-title span { font-size: 1.05rem; }
+
+  /* Horizontal scroll is transform-driven (not native), so X stays hidden; Y is allowed to
+     scroll when a dense multi-voice chunk is taller than the viewport even at the legibility
+     floor (see HORIZONTAL_HEAD_MIN) — same "scroll, don't shrink into illegibility" trade-off
+     page mode already makes. */
+  body.performer.performer-horizontal .score-viewport { overflow-x: hidden; overflow-y: auto; }
+  body.performer.performer-vertical .score-viewport { overflow: hidden; }
+  /* Page (4/8 bars) at fixed note size: a dense page can be tall — let it scroll instead of
+     shrinking the notes. */
+  body.performer:not(.performer-horizontal):not(.performer-vertical) .score-viewport { overflow: auto; }
+
+  body.performer.performer-horizontal #scoreArea,
+  body.performer.performer-vertical #scoreArea {
+    overflow: visible;
+    justify-content: flex-start;
+  }
+
+  /* Append-only vertical strip: each engraved system has a permanent yOffset; only the strip
+     moves. This is the vertical counterpart of #horizontalStrip and never re-buffers mid-score. */
+  body.performer.performer-vertical #verticalStrip {
+    position: relative;
+    flex: 0 0 100%;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    transform-origin: left top;
+    will-change: transform;
+  }
+  body.performer.performer-vertical #verticalStrip > svg {
+    max-width: none;
+    max-height: none;
+  }
+
+  /* Append-only chunked horizontal strip: the STRIP itself carries the scroll transform; each
+     chunk <svg> inside it is absolutely positioned at a fixed xOffset (set once, in JS, when
+     appended) and never moves again — only the strip's translate3d changes every frame. */
+  body.performer.performer-horizontal #horizontalStrip {
+    transform-origin: left top;
+    will-change: transform;
+  }
+  body.performer.performer-horizontal #horizontalStrip > svg {
+    max-width: none;
+    max-height: none;
+  }
+  /* NOW reading line removed per performer request — the score still scrolls (current
+     position stays at the reading point), just without the visible red marker. */
+  body.performer.performer-horizontal .performer-playhead { display: none; }
+
+  /* Performer view declutter: hide dev/debug chrome, keep only the reading score.
+     (Normal dev view is unchanged.) */
+  body.performer #patternLabel,          /* mini-notation echo under the staff title */
+  body.performer #graphicSourceLabel,    /* "live from Tidal — shows exactly what played…" */
+  body.performer .timeline-panel {       /* the whole "Exact Cycle Timeline" section */
+    display: none;
+  }
+  /* Rename the graphic-score heading for performers only. */
+  body.performer #graphicPanel .score-title h2 { font-size: 0; }
+  body.performer #graphicPanel .score-title h2::after {
+    content: "Piano Roll";
+    font-size: 1.35rem;
+  }
+
+  /* Performer concert-program header: [instrument/performer] [piece name] [BPM].
+     Hidden in the normal dev view; the staff header becomes a 3-column grid in performer. */
+  #programLeft, #pieceName { display: none; }
+  body.performer #staffPanel .score-header {
+    display: grid;
+    grid-template-columns: minmax(200px, 1fr) minmax(280px, 1.7fr) minmax(120px, 1fr);
+    align-items: center;
+    gap: 24px;
+    min-height: 154px;
+    border-bottom: 1.5px solid var(--performer-ink);
+    background: var(--performer-accent);
+    color: var(--performer-ink);
+  }
+  body.performer[data-performer-theme="blue"] #staffPanel .score-header {
+    color: var(--performer-paper);
+  }
+  body.performer #staffPanel .score-title { display: none; }   /* removes "d1 · cycle N" */
+  body.performer #programLeft {
+    display: grid;
+    justify-self: stretch;
+    align-self: stretch;
+    align-content: space-between;
+    gap: 20px;
+    line-height: 1.35;
+  }
+  body.performer .performer-kicker {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+  body.performer #performerBridgeState {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  body.performer #performerBridgeState::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    background: transparent;
+  }
+  body.performer #performerBridgeState[data-state="connected"]::before {
+    background: currentColor;
+  }
+  body.performer #performerBridgeState[data-state="error"]::before {
+    border-radius: 0;
+    transform: rotate(45deg);
+  }
+  body.performer .performer-program-meta {
+    display: grid;
+    gap: 4px;
+  }
+  body.performer #pieceInstrument {
+    font-weight: 600;
+    font-size: 0.82rem;
+    text-transform: lowercase;
+  }
+  body.performer #pieceInstrument:empty::after { content: "live instrument"; }
+  body.performer #piecePerformer {
+    color: currentColor;
+    font-size: 0.72rem;
+    opacity: 0.72;
+  }
+  body.performer #piecePerformer:empty::after { content: "performed live"; }
+  body.performer #pieceName {
+    display: block;
+    justify-self: center;
+    max-width: 760px;
+    text-align: center;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-weight: 700;
+    font-size: clamp(2rem, 4vw, 4.4rem);
+    line-height: 0.9;
+    letter-spacing: -0.045em;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+  body.performer #pieceName:empty::after { content: "UNTITLED SCORE"; }
+  body.performer #cyclePulse {
+    justify-self: end;
+    width: clamp(92px, 8.5vw, 122px);
+    height: clamp(92px, 8.5vw, 122px);
+    min-width: 92px;
+    border-radius: 50%;
+    place-items: center;
+  }
+  body.performer #cyclePulse::after {
+    display: block;
+    inset: 7px;
+    border-radius: 50%;
+    background: var(--performer-accent);
+  }
+  body.performer #cyclePulse span {
+    display: grid;
+    place-items: center;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-size: clamp(1.8rem, 3.2vw, 3.2rem);
+    line-height: 0.78;
+    letter-spacing: -0.05em;
+  }
+  body.performer #cyclePulse span::after {
+    content: "BPM ↗";
+    margin-top: 9px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: currentColor;
+  }
+
+  body.performer.performer-vertical #scoreArea {
+    min-height: 0;
+    padding-top: 8px;
+    align-items: flex-start;
+  }
+
+  body.performer.performer-vertical #scoreArea > svg { width: 100%; }
+
+  /* Computer stage: the whole performer view is one screen, not a long web page.
+     Tablet keeps the existing rules until its dedicated pass. */
+  body.performer[data-performer-size="computer"] {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  body.performer[data-performer-size="computer"] main {
+    width: min(1800px, calc(100% - 24px));
+    height: 100dvh;
+    padding: 10px 0 12px;
+  }
+  body.performer[data-performer-size="computer"] .workspace,
+  body.performer[data-performer-size="computer"] .score-wrap {
+    height: 100%;
+    min-height: 0;
+  }
+  /* Whole performer screen is capped to one viewport height (see body[data-performer-size=computer]
+     above) — the score and Piano Roll compete for that fixed budget. Give the score panel priority
+     and cap Piano Roll to a smaller share that scrolls internally instead of growing with more
+     flagged voices (which was squeezing the score panel below what multi-voice content needs).
+     Row 2 is "auto" (not a fixed minmax reservation) so it costs nothing when Piano Roll is hidden
+     (the default, viewOpt=staff) — #graphicPanel's own max-height is what caps it when shown. */
+  body.performer[data-performer-size="computer"] .score-wrap {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  body.performer[data-performer-size="computer"] #graphicPanel {
+    display: flex;
+    flex-direction: column;
+    max-height: 150px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  body.performer[data-performer-size="computer"] #graphicArea {
+    overflow-y: auto;
+    min-height: 0;
+  }
+  body.performer[data-performer-size="computer"] #staffPanel {
+    display: grid !important;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  body.performer[data-performer-size="computer"] #staffPanel .score-header {
+    grid-template-columns: minmax(190px, 0.9fr) minmax(360px, 2fr) minmax(92px, 0.9fr);
+    gap: 18px;
+    min-height: 112px;
+    padding: 13px 18px 15px;
+  }
+  body.performer[data-performer-size="computer"] #programLeft {
+    gap: 12px;
+  }
+  body.performer[data-performer-size="computer"] #pieceName {
+    max-width: 860px;
+    font-size: clamp(2rem, 3.25vw, 3.7rem);
+    line-height: 0.88;
+  }
+  body.performer[data-performer-size="computer"] #cyclePulse {
+    width: clamp(78px, 6.4vw, 92px);
+    height: clamp(78px, 6.4vw, 92px);
+    min-width: 78px;
+  }
+  body.performer[data-performer-size="computer"] #cyclePulse span {
+    font-size: clamp(1.55rem, 2.35vw, 2.3rem);
+  }
+  body.performer[data-performer-size="computer"] #cyclePulse span::after {
+    margin-top: 7px;
+    font-size: 0.48rem;
+  }
+  body.performer[data-performer-size="computer"] .performer-toolbar {
+    grid-template-columns: minmax(450px, 1.45fr) minmax(360px, 1fr) auto;
+    align-items: start;
+    gap: 8px 18px;
+    padding: 9px 16px 8px;
+  }
+  body.performer[data-performer-size="computer"] .performer-control-cluster {
+    gap: 5px;
+  }
+  body.performer[data-performer-size="computer"] .performer-colour-cluster {
+    justify-self: center;
+  }
+  body.performer[data-performer-size="computer"] .performer-display-cluster {
+    justify-self: end;
+  }
+  body.performer[data-performer-size="computer"] .performer-layout-btn,
+  body.performer[data-performer-size="computer"] .performer-theme-btn {
+    min-height: 31px;
+    padding: 7px 9px;
+    font-size: 0.66rem;
+  }
+  body.performer[data-performer-size="computer"] .performer-layout-status {
+    font-size: 0.62rem;
+    line-height: 1.25;
+  }
+  body.performer[data-performer-size="computer"] .score-viewport {
+    height: auto !important;
+    min-height: 0;
+    overflow: hidden !important;
+  }
+  /* Page mode has no scroll transform to rely on (unlike horizontal/vertical), so if a dense
+     ensemble still doesn't fully fit even after shrinking to a legible minimum, let the page
+     scroll instead of silently clipping it — never lose content off the bottom of the viewport. */
+  body.performer[data-performer-size="computer"]:not(.performer-horizontal):not(.performer-vertical) .score-viewport {
+    overflow: auto !important;
+  }
+  body.performer[data-performer-size="computer"] #scoreArea {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 10px 14px;
+    overflow: visible;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+  body.performer[data-performer-size="computer"] #scoreArea > svg {
+    flex: 0 0 auto;
+    transform-origin: left top;
+    will-change: transform;
+  }
+  body.performer[data-performer-size="computer"] .float-controls {
+    right: 18px;
+    bottom: 16px;
+  }
+  body.performer[data-performer-size="computer"] .float-controls button {
+    border: 1.5px solid var(--performer-ink);
+    border-radius: 0;
+    box-shadow: none;
+    padding: 7px 10px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+  }
+  body.performer[data-performer-size="computer"] #themeBtn { display: none; }
+
+  /* Tablet preset, landscape orientation: use the available screen as a performance stage.
+     The generic webpage layout let the program header, two-row toolbar and Piano Roll determine
+     their own heights, leaving Vertical with only a thin score slit and clipping ensembles in
+     Horizontal. These rules are tablet-only; the established Computer stage is untouched. */
+  @media (orientation: landscape) {
+    body.performer[data-performer-size="tablet"] {
+      height: 100dvh;
+      min-height: 0;
+      overflow: hidden;
+    }
+    body.performer[data-performer-size="tablet"] main {
+      width: calc(100% - 16px);
+      height: 100dvh;
+      min-height: 0;
+      padding: 6px 0 8px;
+    }
+    body.performer[data-performer-size="tablet"] .workspace,
+    body.performer[data-performer-size="tablet"] .score-wrap {
+      height: 100%;
+      min-height: 0;
+    }
+    body.performer[data-performer-size="tablet"] .score-wrap {
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+    body.performer[data-performer-size="tablet"] #staffPanel {
+      display: grid !important;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+    body.performer[data-performer-size="tablet"] #staffPanel .score-header {
+      grid-template-columns: minmax(160px, 0.85fr) minmax(300px, 2fr) minmax(70px, 0.75fr);
+      gap: 12px;
+      min-height: 82px;
+      padding: 8px 12px 10px;
+    }
+    body.performer[data-performer-size="tablet"] #programLeft { gap: 7px; }
+    body.performer[data-performer-size="tablet"] .performer-kicker { font-size: 0.58rem; }
+    body.performer[data-performer-size="tablet"] #pieceInstrument { font-size: 0.7rem; }
+    body.performer[data-performer-size="tablet"] #piecePerformer { font-size: 0.62rem; }
+    body.performer[data-performer-size="tablet"] #pieceName {
+      max-width: 700px;
+      font-size: clamp(1.65rem, 3.1vw, 2.9rem);
+      line-height: 0.88;
+    }
+    body.performer[data-performer-size="tablet"] #cyclePulse {
+      width: 66px;
+      height: 66px;
+      min-width: 66px;
+    }
+    body.performer[data-performer-size="tablet"] #cyclePulse span { font-size: 1.55rem; }
+    body.performer[data-performer-size="tablet"] #cyclePulse span::after {
+      margin-top: 5px;
+      font-size: 0.42rem;
+    }
+    body.performer[data-performer-size="tablet"] .performer-toolbar {
+      grid-template-columns: minmax(390px, 1.35fr) minmax(300px, 1fr) auto;
+      align-items: start;
+      gap: 6px 12px;
+      padding: 7px 12px 6px;
+    }
+    body.performer[data-performer-size="tablet"] .performer-control-cluster { gap: 4px; }
+    body.performer[data-performer-size="tablet"] .performer-colour-cluster { justify-self: center; }
+    body.performer[data-performer-size="tablet"] .performer-display-cluster { justify-self: end; }
+    body.performer[data-performer-size="tablet"] .performer-layout-btn,
+    body.performer[data-performer-size="tablet"] .performer-theme-btn {
+      min-height: 29px;
+      padding: 6px 8px;
+      font-size: 0.61rem;
+    }
+    body.performer[data-performer-size="tablet"] .performer-toolbar-label,
+    body.performer[data-performer-size="tablet"] .performer-layout-status {
+      font-size: 0.57rem;
+      line-height: 1.2;
+    }
+    body.performer[data-performer-size="tablet"] .score-viewport {
+      height: auto !important;
+      min-height: 0;
+      overflow: hidden !important;
+    }
+    body.performer[data-performer-size="tablet"] #scoreArea {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      padding: 8px 10px;
+      overflow: visible;
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+    body.performer[data-performer-size="tablet"] #scoreArea > svg {
+      flex: 0 0 auto;
+      transform-origin: left top;
+      will-change: transform;
+    }
+    body.performer[data-performer-size="tablet"].performer-horizontal .score-viewport {
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
+    }
+    body.performer[data-performer-size="tablet"].performer-vertical .score-viewport {
+      overflow: hidden !important;
+    }
+    body.performer[data-performer-size="tablet"]:not(.performer-horizontal):not(.performer-vertical) .score-viewport {
+      overflow: auto !important;
+    }
+    body.performer[data-performer-size="tablet"] #graphicPanel {
+      display: flex;
+      flex-direction: column;
+      max-height: 112px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    body.performer[data-performer-size="tablet"] #graphicPanel .score-header {
+      min-height: 0;
+      padding: 8px 12px;
+    }
+    body.performer[data-performer-size="tablet"] #graphicArea {
+      min-height: 0;
+      padding: 7px 10px 9px;
+      overflow-y: auto;
+    }
+    body.performer[data-performer-size="tablet"] .float-controls {
+      right: 10px;
+      bottom: 8px;
+    }
+  }
+
+  @media (max-width: 920px) {
+    body.performer .performer-toolbar {
+      grid-template-columns: 1fr;
+      align-items: start;
+    }
+    body.performer #staffPanel .score-header {
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "meta bpm"
+        "title title";
+      min-height: 0;
+    }
+    body.performer #programLeft { grid-area: meta; }
+    body.performer #pieceName {
+      grid-area: title;
+      justify-self: start;
+      text-align: left;
+      margin-top: 14px;
+    }
+    body.performer #cyclePulse { grid-area: bpm; }
+  }
+
+  @media (max-width: 560px) {
+    body.performer main { width: calc(100% - 16px); padding-top: 8px; }
+    body.performer #staffPanel .score-header { padding: 16px; }
+    body.performer .performer-kicker { align-items: flex-start; flex-direction: column; gap: 5px; }
+    body.performer .performer-toolbar { padding: 14px; }
+    body.performer .performer-layout-btn,
+    body.performer .performer-theme-btn { flex: 1 1 auto; justify-content: center; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body.performer *,
+    body.performer *::before,
+    body.performer *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
 
   /* Floating buttons (always visible, discreet) */
   .float-controls {
@@ -648,6 +1408,10 @@
           <select id="clefOpt">
             <option value="treble" selected>Treble</option>
             <option value="bass">Bass</option>
+            <option value="alto">Alto (viola)</option>
+            <option value="tenor">Tenor (violoncello)</option>
+            <option value="alto-adaptive">Alto (viola, adaptive → treble above D5)</option>
+            <option value="tenor-adaptive">Tenor (violoncello, adaptive → treble above D5)</option>
           </select>
         </label>
       </div>
@@ -734,13 +1498,56 @@
             <h2 id="scoreTitle">no pattern · cycle 0</h2>
             <span id="patternLabel"></span>
           </div>
+          <!-- Performer concert-program header (from `-- name/instrument/performed by` comments) -->
+          <div id="programLeft">
+            <div class="performer-kicker">
+              <span>Performer / live</span>
+              <span id="performerBridgeState" data-state="idle">Bridge idle</span>
+            </div>
+            <div class="performer-program-meta">
+              <div id="pieceInstrument"></div>
+              <div id="piecePerformer"></div>
+            </div>
+          </div>
+          <div id="pieceName"></div>
           <div class="cycle-pulse" id="cyclePulse" title="Cycle progress"><span id="cyclePulseNum">0</span></div>
         </div>
-        <div id="scoreArea" aria-label="Rendered score">
-          <div class="placeholder">
-            <span class="big">𝄞</span>
-            Flag a live line or enter a scratch pattern and press Render
+        <div id="performerToolbar" class="performer-toolbar" aria-label="Performer reading flow">
+          <div class="performer-control-cluster performer-reading-cluster">
+            <span class="performer-toolbar-label">Reading mode</span>
+            <div class="performer-layout-options" role="group" aria-label="Score movement">
+              <button class="performer-layout-btn" type="button" data-performer-layout="page" aria-pressed="true">Page</button>
+              <button class="performer-layout-btn" type="button" data-performer-layout="horizontal" aria-pressed="false">→ Horizontal</button>
+              <button class="performer-layout-btn" type="button" data-performer-layout="vertical" aria-pressed="false">↓ Vertical</button>
+            </div>
           </div>
+          <div class="performer-control-cluster performer-colour-cluster">
+            <span class="performer-toolbar-label">Colour</span>
+            <div class="performer-theme-options" role="group" aria-label="Performer colour theme">
+              <button class="performer-theme-btn" type="button" data-performer-theme="blue" aria-pressed="true"><span class="performer-theme-swatch" style="--swatch:#3347ff"></span>Blue</button>
+              <button class="performer-theme-btn" type="button" data-performer-theme="pink" aria-pressed="false"><span class="performer-theme-swatch" style="--swatch:#ff5b9d"></span>Pink</button>
+              <button class="performer-theme-btn" type="button" data-performer-theme="acid" aria-pressed="false"><span class="performer-theme-swatch" style="--swatch:#d9ff43"></span>Acid</button>
+              <button class="performer-theme-btn" type="button" data-performer-theme="cream" aria-pressed="false"><span class="performer-theme-swatch" style="--swatch:#e26d4f"></span>Cream</button>
+            </div>
+          </div>
+          <div class="performer-control-cluster performer-display-cluster">
+            <span class="performer-toolbar-label">Display</span>
+            <div class="performer-layout-options" role="group" aria-label="Display preset">
+              <button class="performer-layout-btn" type="button" data-size-preset="computer" aria-pressed="true">Computer</button>
+              <button class="performer-layout-btn" type="button" data-size-preset="tablet" aria-pressed="false">Tablet</button>
+              <button class="performer-layout-btn" id="grandStaffBtn" type="button" aria-pressed="false" title="Optional: split extreme pitch ranges across treble and bass staves">Grand staff</button>
+            </div>
+          </div>
+          <span id="performerLayoutStatus" class="performer-layout-status" aria-live="polite">Page · cycle view setting</span>
+        </div>
+        <div id="scoreViewport" class="score-viewport">
+          <div id="scoreArea" aria-label="Rendered score">
+            <div class="placeholder">
+              <span class="big">𝄞</span>
+              Flag a live line or enter a scratch pattern and press Render
+            </div>
+          </div>
+          <div id="performerPlayhead" class="performer-playhead" aria-hidden="true"></div>
         </div>
         <div class="render-status" id="status">Initialising Verovio…</div>
       </div>
@@ -2551,8 +3358,111 @@ function parseNote(val, pitchInput = 'name') {
   return { pname: m[1], acc, oct: typedOct - 1, rest: false };
 }
 
+// Standard MEI clef encoding + the pitch sitting on each clef's middle staff line (used as the
+// approximated/fallback reference pitch — see clefMiddlePitch below). Alto's middle line IS middle
+// C (the C clef centered on line 3); tenor's middle line is a third below the 4th-line middle C.
+const CLEF_INFO = {
+  treble: { shape: 'G', line: '2', mid: { pname: 'b', oct: 4 } },
+  bass:   { shape: 'F', line: '4', mid: { pname: 'd', oct: 3 } },
+  alto:   { shape: 'C', line: '3', mid: { pname: 'c', oct: 4 } },
+  tenor:  { shape: 'C', line: '4', mid: { pname: 'a', oct: 3 } },
+};
+
 function clefMiddlePitch(clef) {
-  return clef === 'treble' ? { pname: 'b', oct: 4 } : { pname: 'd', oct: 3 };
+  return (CLEF_INFO[clef] || CLEF_INFO.treble).mid;
+}
+
+// "Adaptive" Alto/Tenor: switches to treble when a window's material goes higher than a real
+// orchestral part would keep in Alto/Tenor (too many ledger lines above the staff) — unlike plain
+// Alto/Tenor (CLEF_INFO above), which never auto-switches once chosen. pitchRank is defined further
+// down but hoisted (function declaration), safe to reference here.
+const ADAPTIVE_CLEF_BASE = { 'alto-adaptive': 'alto', 'tenor-adaptive': 'tenor' };
+const ADAPTIVE_TREBLE_THRESHOLD = pitchRank({ pname: 'd', oct: 5 }); // D5 (Tidal note-name "d6")
+
+function collectPitchRanks(elements, pitchInput, out) {
+  for (const el of elements || []) {
+    if (el.type === 'leaf') {
+      const info = parseNote(el.value, pitchInput);
+      if (!info || info.rest) continue;
+      const notes = info.chord || [info];
+      for (const note of notes) out.push(pitchRank(note));
+    }
+    if (el.children) collectPitchRanks(el.children, pitchInput, out);
+    if (el.alternatives) collectPitchRanks(el.alternatives, pitchInput, out);
+    if (el.inner) collectPitchRanks([el.inner], pitchInput, out);
+  }
+}
+
+const GRAND_STAFF_FILLER_REST = '__grand_staff_filler_rest__';
+
+function grandStaffValueForHalf(value, half, pitchInput) {
+  if (value === '~' || value === 'r')
+    return half === 'treble' ? value : GRAND_STAFF_FILLER_REST;
+  const info = parseNote(value, pitchInput);
+  if (!info || info.rest)
+    return half === 'treble' ? value : GRAND_STAFF_FILLER_REST;
+  const splitRank = pitchRank({ pname: 'c', oct: 4 }); // sounding middle C
+  const notes = (info.chord || [info]).filter(note =>
+    half === 'bass' ? pitchRank(note) < splitRank : pitchRank(note) >= splitRank
+  );
+  return notes.length
+    ? notes.map(pitchInfoToTidalName).join('+')
+    : GRAND_STAFF_FILLER_REST;
+}
+
+function grandStaffElementsForHalf(elements, half, pitchInput) {
+  return (elements || []).map(element => {
+    if (element.type === 'leaf')
+      return { ...element, value: grandStaffValueForHalf(element.value, half, pitchInput) };
+    if (element.children)
+      return { ...element, children: grandStaffElementsForHalf(element.children, half, pitchInput) };
+    if (element.alternatives)
+      return { ...element, alternatives: grandStaffElementsForHalf(element.alternatives, half, pitchInput) };
+    if (element.inner)
+      return { ...element, inner: grandStaffElementsForHalf([element.inner], half, pitchInput)[0] };
+    return element;
+  });
+}
+
+function patternNeedsGrandStaff(pattern, pitchInput, startCycle, numCycles) {
+  const ranks = [];
+  for (let cycle = startCycle; cycle < startCycle + numCycles; cycle++) {
+    const layers = pattern.layersByCycle
+      ? pattern.layersByCycle(cycle)
+      : applyChain(pattern.baseLayers, pattern.chain, cycle);
+    for (const layer of layers) collectPitchRanks(layer, pitchInput, ranks);
+  }
+  if (ranks.length < 2) return false;
+  const low = Math.min(...ranks);
+  const high = Math.max(...ranks);
+  const middleC = pitchRank({ pname: 'c', oct: 4 });
+  // Require both sides of middle C and at least two octaves of total span. Ordinary melodic
+  // material stays byte-for-byte on the existing single-staff path even when the option is on.
+  return low < middleC && high >= middleC && high - low >= 14;
+}
+
+function clefForPitchRanks(ranks, fallback = 'treble', strategy = 'median') {
+  if (!ranks.length) return fallback;
+  const sorted = [...ranks].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (strategy === 'ledger') {
+    // Compare how far every pitch falls outside the five staff lines. This is
+    // more reliable than a median for a single horizontal instrument whose
+    // wide/low voicing would otherwise create an enormous treble-clef box.
+    const outsideCost = (low, high) => sorted.reduce(
+      (sum, rank) => sum + Math.max(0, low - rank, rank - high), 0);
+    const trebleCost = outsideCost(
+      pitchRank({ pname: 'e', oct: 4 }),
+      pitchRank({ pname: 'f', oct: 5 }));
+    const bassCost = outsideCost(
+      pitchRank({ pname: 'g', oct: 2 }),
+      pitchRank({ pname: 'a', oct: 3 }));
+    if (bassCost !== trebleCost) return bassCost < trebleCost ? 'bass' : 'treble';
+  }
+  // Middle C and above reads naturally in treble; lower material avoids
+  // excessive ledger lines by moving to bass. Sounding pitch is unchanged.
+  const middleC = pitchRank({ pname: 'c', oct: 4 });
+  return median < middleC ? 'bass' : 'treble';
 }
 
 // ─── Drum-kit staff positions ────────────────────────────────────────────────
@@ -2648,6 +3558,7 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
   stats.total++;
 
   let noteInfo;
+  const isGrandStaffFiller = value === GRAND_STAFF_FILLER_REST;
   if (mode === 'rhythm') {
     const isRest = value === 'r' || value === '~';
     // fixedPitch is a function (value → drum-kit position) when the pattern
@@ -2657,12 +3568,22 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
       ? { rest: true }
       : { rest: false, pname: spot.pname, oct: spot.oct, acc: '', head: spot.head || null };
   } else {
-    noteInfo = parseNote(value, pitchInput);
+    noteInfo = isGrandStaffFiller ? { rest: true } : parseNote(value, pitchInput);
     if (!noteInfo) return null;
   }
 
   const { parts, exact } = decomposeDuration(writtenDur);
   const useParts = exact ? parts : [durationToMEI(writtenDur)];
+
+  // The silent counterpart of a grand-staff note must occupy rhythmic time without drawing
+  // a rest. MEI <space> does exactly that, preventing the forest of visible rests that would
+  // otherwise make extreme chords harder—not easier—to read.
+  if (isGrandStaffFiller) {
+    return useParts.map(part => {
+      const dotsAttr = part.dots ? ` dots="${part.dots}"` : '';
+      return `<space dur="${part.dur}"${dotsAttr}/>`;
+    });
+  }
 
   stats.rendered++;
   if (!exact) stats.approximated++;
@@ -2715,8 +3636,32 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
   // degraded, settle from grey to black in place). Rests never get a real
   // event — Tidal emits nothing for silence — so they're instead resolved
   // by the clock itself, in resolveRests.
-  if (meta && meta.orbit !== null && meta.orbit !== undefined) {
-    liveNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, dur: meta.dur || 0, prob, rest: noteInfo.rest, done: false, preFlashed: false });
+  if (!isGrandStaffFiller && meta && meta.orbit !== null && meta.orbit !== undefined) {
+    if (!meta.grandStaffHalf) {
+      // Preserve the established highlight record exactly for every normal score.
+      liveNotes.push({ ids: partIds, orbit: meta.orbit, begin: meta.begin, dur: meta.dur || 0, prob, rest: noteInfo.rest, done: false, preFlashed: false });
+      return xml;
+    }
+    // An opt-in grand staff renders one musical onset on two physical staves. Merge those
+    // notehead ids into one live event so the existing one-highlight-per-orbit logic colours
+    // both halves together. The ordinary single-staff path never enters this branch.
+    const partner = !noteInfo.rest
+      ? liveNotes.find(note =>
+          note.grandStaffHalf &&
+          note.grandStaffHalf !== meta.grandStaffHalf &&
+          note.orbit === meta.orbit &&
+          Math.abs(note.begin - meta.begin) < 1e-7)
+      : null;
+    if (partner) {
+      partner.ids.push(...partIds);
+      partner.dur = Math.max(partner.dur, meta.dur || 0);
+    } else {
+      liveNotes.push({
+        ids: partIds, orbit: meta.orbit, begin: meta.begin, dur: meta.dur || 0,
+        prob, rest: noteInfo.rest, done: false, preFlashed: false,
+        grandStaffHalf: meta.grandStaffHalf
+      });
+    }
   }
 
   return xml;
@@ -2729,7 +3674,7 @@ function noteOrRestXML(value, writtenDur, mode, fixedPitch, stats, pitchInput, p
 // which c4 spans 3 units (dotted half) and the rest 1 unit each. This is
 // what keeps `b4*4` (1/4 step) visually 4× faster than `b5!3` (full steps)
 // inside such a group instead of both snapping to the same binary value.
-function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIndex, pitchInput, offset = new Fraction(0), orbit = null) {
+function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIndex, pitchInput, offset = new Fraction(0), orbit = null, liveOptions = null) {
   const totalWeight = elements.reduce((s, e) => s + e.weight, 0);
   const n = elements.length;
   const allIntWeights = elements.every(e => Number.isInteger(e.weight) && e.weight > 0);
@@ -2760,10 +3705,10 @@ function buildMEIItems(elements, length, scale, mode, fixedPitch, stats, cycleIn
         if (live !== null && live !== '~') { value = live; effProb = 1; effPitchInput = 'name'; }
       }
       const parts = noteOrRestXML(value, noteLen, mode, fixedPitch, stats, effPitchInput, effProb,
-        { orbit, begin: cursor.toFloat(), dur: noteLen.toFloat() });
+        { orbit, begin: cursor.toFloat(), dur: noteLen.toFloat(), ...(liveOptions || {}) });
       if (parts) items.push(...parts);
     } else {
-      items.push(...buildMEIItems(resolved.children, elLen, childScale, mode, fixedPitch, stats, c, pitchInput, cursor, orbit));
+      items.push(...buildMEIItems(resolved.children, elLen, childScale, mode, fixedPitch, stats, c, pitchInput, cursor, orbit, liveOptions));
     }
     cursor = cursor.add(elLen);
   }
@@ -2820,17 +3765,44 @@ function eventsToElements(events) {
 // Multiple simultaneous patterns → one <staff> each. `startCycle` picks
 // which absolute cycle indices resolve alternation/slow — this is what
 // makes the notes change as the playback clock advances.
-function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', pitchInput = 'name', startCycle = 0 } = {}) {
-  noteIdSeq = 1;
-  liveNotes = [];
-  // Note ids restart from n1 each render, so a pending clear-timer from the
-  // previous render could otherwise blacken an unrelated note that happens
-  // to reuse its id.
-  for (const h of activeHighlight.values()) clearTimeout(h.timer);
-  activeHighlight.clear();
+function patternsToMEI(patterns, numCycles, {
+  clef = 'treble', mode = 'pitch', pitchInput = 'name', startCycle = 0,
+  systemBreakEvery = 0, autoClef = false, clefStrategy = 'median',
+  // Chunked append-only rendering (horizontal scroll) calls this once per NEW chunk while
+  // earlier chunks are still live on screen — resetting note ids / liveNotes / activeHighlight
+  // would collide ids across chunks and kill in-flight highlight timers for already-appended
+  // chunks. Whole-buffer callers (page/vertical/dev view) keep the old reset-every-call default.
+  resetIds = true, resetHighlights = true,
+  // Each horizontal chunk is its own mini-document, but a chunk boundary is never the real end
+  // of the piece (more chunks keep streaming in) — a "final" double barline there reads as a
+  // false stop. Page/vertical keep the true end-of-window final barline.
+  finalBarline = true,
+  // A clef/label declared on <staffDef> is ALWAYS drawn by Verovio and ALWAYS reserves layout
+  // space, even if hidden afterward with CSS (verified empirically — hiding post-render leaves the
+  // reserved space behind as a dead gap). For a horizontal chunk that isn't the session's first,
+  // the clef was already shown once and must take zero space. When false: staffDef omits
+  // clef.shape/clef.line/label entirely, and an invisible <clef visible="false"/> is injected as
+  // the first layer item instead — Verovio still uses it to place pitches correctly, but draws
+  // nothing and reserves nothing. REQUIRES autoClef:false (uniform clef across staves/cycles) since
+  // the invisible clef is written before per-staff pitch ranks would otherwise be known.
+  showClefLabel = true,
+  // Infinite Vertical renders one system per document; opt in there so appended documents keep
+  // counting 1, 5, 9… instead of each independently restarting at measure 1.
+  absoluteMeasureNumbers = false,
+  // Deliberately opt-in: extreme ranges may be split between a paired treble/bass staff.
+  // When false, patterns follow the exact original single-staff rendering path.
+  grandStaff = false
+} = {}) {
+  if (resetIds) { noteIdSeq = 1; liveNotes = []; }
+  // Note ids restart from n1 each whole-buffer render, so a pending clear-timer from the
+  // previous render could otherwise blacken an unrelated note that happens to reuse its id.
+  if (resetHighlights) {
+    for (const h of activeHighlight.values()) clearTimeout(h.timer);
+    activeHighlight.clear();
+  }
   iterApproximated = 0;
   playedApproximated = 0;
-  const parsed = patterns.map(p => {
+  const parsedBase = patterns.map(p => {
     const om = (p.label || '').match(/^d(\d+)$/);
     // Prebuilt per-cycle layers (played-staff mode) bypass the text parser.
     if (p.layersByCycle) {
@@ -2849,6 +3821,15 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   });
 
   const isRhythm = mode === 'rhythm';
+  const parsed = (!grandStaff || isRhythm)
+    ? parsedBase
+    : parsedBase.flatMap(p => {
+        if (!patternNeedsGrandStaff(p, pitchInput, startCycle, numCycles)) return [p];
+        return [
+          { ...p, grandStaffHalf: 'treble' },
+          { ...p, label: '', grandStaffHalf: 'bass' }
+        ];
+      });
 
   // Rhythm mode: one distinct sample keeps the clean single-line staff;
   // multiple samples get real drum-kit notation (5-line percussion staff,
@@ -2870,13 +3851,18 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
   playedApproximated = 0; // drum-map pre-pass may have walked the same events
 
   const staffLines = isRhythm ? (isDrumKit ? '5' : '1') : '5';
-  const clefShape  = isRhythm ? 'perc' : (clef === 'treble' ? 'G' : 'F');
-  const clefLine   = isRhythm ? (isDrumKit ? '3' : '1') : (clef === 'treble' ? '2' : '4');
+  // Outer default only — the real per-staff decision for adaptive clefs happens in the resolve
+  // loop below, which always overrides this. Falls back through the adaptive's own base clef
+  // (alto/tenor) rather than straight to treble, so this default is never semantically wrong even
+  // if some future code path reads it before that loop runs.
+  const clefShape  = isRhythm ? 'perc' : (CLEF_INFO[clef] || CLEF_INFO[ADAPTIVE_CLEF_BASE[clef]] || CLEF_INFO.treble).shape;
+  const clefLine   = isRhythm ? (isDrumKit ? '3' : '1') : (CLEF_INFO[clef] || CLEF_INFO[ADAPTIVE_CLEF_BASE[clef]] || CLEF_INFO.treble).line;
   const singleSpot = { pname: 'b', oct: 4, head: null };
   const fixedPitch = isRhythm
     ? (isDrumKit ? (v => drumMap.get(v) || singleSpot) : singleSpot)
     : clefMiddlePitch(clef);
   const stats = { total: 0, rendered: 0, approximated: 0, probabilistic: 0 };
+  const staffPitchRanks = parsed.map(() => []);
   if (isDrumKit) {
     stats.legend = [...drumMap.entries()]
       .sort((a, b) => pitchRank(a[1]) - pitchRank(b[1]))
@@ -2884,30 +3870,102 @@ function patternsToMEI(patterns, numCycles, { clef = 'treble', mode = 'pitch', p
       .join(' < ');
   }
 
-  const measureEls = [];
+  // Pre-pass: walk every staff × cycle in this window ONCE, caching each staff's per-cycle content
+  // and (for autoClef / adaptive clefs) its pitch ranks — needed BEFORE any clef decision. The
+  // invisible in-layer <clef> (horizontal continuation chunks, see showClefLabel doc above) is
+  // written at the window's very first cycle, but its shape/line must reflect the WHOLE window's
+  // pitch content, not just that first cycle — hence resolving clefs only after this full pass.
+  const cachedCycles = parsed.map(() => []); // [idx][c-startCycle] = { contentCycle, cycleLayers }
   for (let c = startCycle; c < startCycle + numCycles; c++) {
-    const measureN = c - startCycle + 1;
-    const staffEls = parsed.map((p, idx) => {
-      // jux rotates orig/rev/both over 3 cycles (phase = c%3, chosen in
-      // applyChain). To let each alternation branch be seen through a full
-      // rotation, resolve pattern CONTENT at a 3× slower cycle so `<A B>`
-      // holds A for cycles 0-2 (orig/rev/both), then B for 3-5. Display-only:
+    parsed.forEach((p, idx) => {
+      // jux rotates orig/rev/both over 3 cycles (phase = c%3, chosen in applyChain). To let each
+      // alternation branch be seen through a full rotation, resolve pattern CONTENT at a 3× slower
+      // cycle so `<A B>` holds A for cycles 0-2 (orig/rev/both), then B for 3-5. Display-only:
       // Tidal still swaps the branch every cycle in the audio.
       const juxActive = (p.chain || []).some(t => t.fn === 'jux');
       const contentCycle = juxActive ? Math.floor(c / 3) : c;
-      const cycleLayers = p.layersByCycle ? p.layersByCycle(c) : applyChain(p.baseLayers, p.chain, c);
+      const sourceLayers = p.layersByCycle ? p.layersByCycle(c) : applyChain(p.baseLayers, p.chain, c);
+      const cycleLayers = p.grandStaffHalf
+        ? sourceLayers.map(layer => grandStaffElementsForHalf(layer, p.grandStaffHalf, pitchInput))
+        : sourceLayers;
+      cachedCycles[idx].push({ contentCycle, cycleLayers });
+      if (!isRhythm && (autoClef || ADAPTIVE_CLEF_BASE[clef]) && !p.grandStaffHalf)
+        for (const layer of cycleLayers) collectPitchRanks(layer, pitchInput, staffPitchRanks[idx]);
+    });
+  }
+
+  // Resolve each staff's clef ONCE for the whole window — reused by the visible staffDef (first
+  // chunk / page / vertical) and the invisible in-layer clef (horizontal continuation chunks)
+  // alike, so the two always agree instead of drifting out of sync.
+  const staffClefShape = [], staffClefLine = [];
+  parsed.forEach((p, idx) => {
+    let shape = clefShape, line = clefLine;
+    if (p.grandStaffHalf) {
+      shape = p.grandStaffHalf === 'bass' ? 'F' : 'G';
+      line = p.grandStaffHalf === 'bass' ? '4' : '2';
+    } else if (!isRhythm && ADAPTIVE_CLEF_BASE[clef]) {
+      // Real orchestral viola/cello parts switch to treble when a passage runs high enough that
+      // Alto/Tenor would need many ledger lines above the staff — unlike plain Alto/Tenor
+      // (below), which never auto-switches once chosen. Rhythm mode keeps its percussion clef
+      // (the outer clefShape/clefLine default already handles that) regardless of this selector.
+      const ranks = staffPitchRanks[idx];
+      const high = ranks.length ? Math.max(...ranks) : -Infinity;
+      const resolved = high > ADAPTIVE_TREBLE_THRESHOLD ? 'treble' : ADAPTIVE_CLEF_BASE[clef];
+      shape = CLEF_INFO[resolved].shape; line = CLEF_INFO[resolved].line;
+    } else if (!isRhythm && autoClef && (clef === 'treble' || clef === 'bass')) {
+      // Auto-picking bass/treble per voice only makes sense within that binary system. Alto/Tenor
+      // are a deliberate, idiomatic instrument choice (viola/cello parts don't auto-flip to a
+      // treble/bass heuristic) — once chosen, use it exactly as selected, every voice, every chunk.
+      const staffClef = clefForPitchRanks(staffPitchRanks[idx], clef, clefStrategy);
+      shape = staffClef === 'bass' ? 'F' : 'G';
+      line = staffClef === 'bass' ? '4' : '2';
+    }
+    staffClefShape.push(shape);
+    staffClefLine.push(line);
+  });
+
+  const measureEls = [];
+  for (let c = startCycle; c < startCycle + numCycles; c++) {
+    const measureIndex = c - startCycle + 1;
+    const measureN = absoluteMeasureNumbers ? c + 1 : measureIndex;
+    const staffEls = parsed.map((p, idx) => {
+      const { contentCycle, cycleLayers } = cachedCycles[idx][measureIndex - 1];
       const layerEls = cycleLayers.map((layerElements, li) => {
-        const items = buildMEIItems(layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats, contentCycle, pitchInput, new Fraction(c), p.orbit);
-        return `\n          <layer n="${li + 1}">\n            ${items.join('\n            ')}\n          </layer>`;
+        const items = buildMEIItems(
+          layerElements, new Fraction(1), new Fraction(1), mode, fixedPitch, stats,
+          contentCycle, pitchInput, new Fraction(c), p.orbit,
+          p.grandStaffHalf ? { grandStaffHalf: p.grandStaffHalf } : null
+        );
+        // Zero-space clef: see showClefLabel doc above — carries pitch context forward for the
+        // whole document without Verovio drawing or reserving room for it.
+        const invisibleClef = (!showClefLabel && c === startCycle && li === 0)
+          ? `<clef shape="${staffClefShape[idx]}" line="${staffClefLine[idx]}" visible="false"/>\n            ` : '';
+        return `\n          <layer n="${li + 1}">\n            ${invisibleClef}${items.join('\n            ')}\n          </layer>`;
       });
       return `\n        <staff n="${idx + 1}">${layerEls.join('')}\n        </staff>`;
     });
-    measureEls.push(`\n      <measure n="${measureN}" right="${measureN === numCycles ? 'end' : 'single'}">${staffEls.join('')}\n      </measure>`);
+    measureEls.push(`\n      <measure n="${measureN}" right="${(finalBarline && measureIndex === numCycles) ? 'end' : 'single'}">${staffEls.join('')}\n      </measure>`);
+    if (systemBreakEvery > 0 && measureIndex < numCycles && measureIndex % systemBreakEvery === 0)
+      measureEls.push('\n      <sb/>');
   }
 
-  const staffDefs = parsed.map((p, idx) =>
-    `<staffDef n="${idx + 1}" lines="${staffLines}" clef.shape="${clefShape}" clef.line="${clefLine}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`
-  ).join('\n              ');
+  const staffDefXml = parsed.map((p, idx) => {
+    if (!showClefLabel) return `<staffDef n="${idx + 1}" lines="${staffLines}"/>`;
+    return `<staffDef n="${idx + 1}" lines="${staffLines}" clef.shape="${staffClefShape[idx]}" clef.line="${staffClefLine[idx]}">${p.label ? `<label>${p.label}</label>` : ''}</staffDef>`;
+  });
+  const groupedStaffDefs = [];
+  for (let idx = 0; idx < parsed.length; idx++) {
+    if (parsed[idx].grandStaffHalf === 'treble' && parsed[idx + 1]?.grandStaffHalf === 'bass') {
+      groupedStaffDefs.push(`<staffGrp symbol="brace" bar.thru="true">
+                ${staffDefXml[idx]}
+                ${staffDefXml[idx + 1]}
+              </staffGrp>`);
+      idx++;
+    } else {
+      groupedStaffDefs.push(staffDefXml[idx]);
+    }
+  }
+  const staffDefs = groupedStaffDefs.join('\n              ');
 
   const mei = `<?xml version="1.0" encoding="UTF-8"?>
 <mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="4.0">
@@ -2986,7 +4044,7 @@ function approximatedSuffix(stats) {
 // session is playing) and the internal Play timer. The remote clock always
 // wins while fresh (<3s old) — that's what keeps the score in true sync with
 // what the audience hears, instead of a simulated tempo.
-const remoteClock = { cycle: 0, cps: 0, at: 0 };
+const remoteClock = { cycle: 0, cps: 0, at: 0, playing: false, explicitlyStopped: false };
 const liveEvents  = { byCycle: new Map(), lastAt: 0 };
 
 // The real pitch Tidal played at a given orbit/cycle/onset, or null. Used to overlay
@@ -2999,13 +4057,199 @@ function liveEventValueAt(orbit, cycle, beginFloat) {
   return null;
 }
 
-function clockIsLive() { return remoteClock.at > 0 && performance.now() - remoteClock.at < 3000; }
+// Performer reading layouts. Scroll modes render beyond the visible window so
+// the score can move continuously without asking Verovio to lay out every frame.
+// Base Verovio render scale for performer modes; the SVG is then CSS-scaled so the NOTEHEAD
+// glyph hits a target pixel height (chosen via the Computer/Tablet size toggle). Sizing off the
+// notehead (a fixed glyph) keeps it correct regardless of clef/ledger lines. Tunable px targets:
+const PERFORMER_BASE_SCALE = 40;
+const PERFORMER_HEAD_COMPUTER = 22;   // upper bound; desktop fitting may reduce it to keep all music visible
+const PERFORMER_HEAD_TABLET   = 20;   // notehead height (px) for a tablet
+const PERFORMER_STAGE_PADDING = 14;
+const HORIZONTAL_VISIBLE_CYCLES = 4;
+// Append-only chunked horizontal scroll (rhythm-game style: lazy generation window + immutable
+// past). Each chunk is engraved by Verovio EXACTLY ONCE and appended to a growing strip — never
+// re-engraved/replaced — so there's no whole-buffer "rebuffer" boundary to jump or feel like an
+// ending, and no re-layout of already-played content on a live pattern edit.
+const HORIZONTAL_CHUNK_CYCLES = HORIZONTAL_VISIBLE_CYCLES; // one clef redraw per chunk, ~1/second of reading
+const HORIZONTAL_LOOKAHEAD_CYCLES = 12;  // keep at least this many cycles generated ahead of the playhead
+const HORIZONTAL_GC_BEHIND_CYCLES = 8;   // drop chunks this far behind the reading position
+const HORIZONTAL_FIT_MAX = 3.5;          // absolute scale ceiling — backstop if headH0 measures oddly
+const HORIZONTAL_HEAD_MIN = 12;          // legibility floor (px) — never shrink noteheads below this
+const VERTICAL_SYSTEM_CYCLES = 4;
+const VERTICAL_DENSE_SYSTEM_CYCLES = 2;
+const VERTICAL_VERY_DENSE_SYSTEM_CYCLES = 1;
+const VERTICAL_DENSE_EVENTS_PER_CYCLE = 8;
+const VERTICAL_VERY_DENSE_EVENTS_PER_CYCLE = 16;
+const VERTICAL_BUFFER_CYCLES = 12; // third system enters continuously from below
+const VERTICAL_READING_LEAD_STEPS = 1.65; // start active system lower for more look-ahead at fast tempos
+const VERTICAL_LOOKAHEAD_SYSTEMS = 3;
+const VERTICAL_GC_BEHIND_SYSTEMS = 2;
+const performerView = {
+  layout: 'page',
+  sizePreset: 'computer', // note-size preset: 'computer' | 'tablet'
+  grandStaff: false,      // opt-in only; normal notation path stays unchanged
+  fitScale: 1,            // uniform scale applied to hit the preset's notehead size
+  _preparedLayout: null,  // last layout preparePerformerScore ran for — detects a fresh entry
+  paused: false,
+  horizontalOffsetPx: 0,
+  horizontalBaseYPx: 0,
+  // Append-only chunked horizontal scroll state (see HORIZONTAL_CHUNK_CYCLES above).
+  hChunks: [],          // [{cycleStart, cycleEnd, el, xOffset, widthPx}], oldest→newest, left→right
+  hStripWidth: 0,        // running total width of all chunks so far — next chunk's xOffset
+  hPatterns: null,       // latest flagged patterns, set by syncHorizontalChunks each render
+  hOpts: null,           // latest {clef, mode, pitchInput}
+  hSignature: null,      // identity of hPatterns — a change invalidates not-yet-reached chunks
+  verticalStepPx: 0,
+  verticalTravelPx: 0,
+  verticalOffsetPx: 0,
+  verticalBaseXPx: 0,
+  verticalBaseYPx: 0,
+  verticalDense: false,
+  verticalSystemCycles: VERTICAL_SYSTEM_CYCLES,
+  verticalStaffCount: 0,
+  verticalAnchoredStaffCount: 0,
+  // Append-only infinite vertical strip state.
+  vChunks: [],          // [{cycleStart, cycleEnd, el, yOffset, heightPx, contentTopPx}]
+  vStripHeight: 0,
+  vPatterns: null,
+  vOpts: null,
+  vSignature: null,
+  vOffsetPx: 0
+};
+
+function activePerformerLayout() {
+  return document.body.classList.contains('performer') ? performerView.layout : 'page';
+}
+
+function getRenderCycleCount() {
+  const layout = activePerformerLayout();
+  // Horizontal no longer has a single "buffer" (chunks are generated continuously) — this value
+  // now only feeds secondary displays (graphic-playhead %, timeline labels), so the lookahead
+  // depth is a reasonable stand-in.
+  if (layout === 'horizontal') return HORIZONTAL_LOOKAHEAD_CYCLES;
+  if (layout === 'vertical') return VERTICAL_BUFFER_CYCLES;
+  return parseInt(document.getElementById('cyclesOpt').value);
+}
+
+function getSystemBreakEvery() {
+  return activePerformerLayout() === 'vertical' ? performerView.verticalSystemCycles : 0;
+}
+
+// Keep every appended Vertical system on the same two-cycle span. The earlier adaptive 1/2/4
+// choice made adjacent systems jump between narrow, medium, and full-width engraving whenever
+// event density changed from one cycle to the next. A steady span reads like one continuous score.
+function chooseVerticalSystemCycles(patterns, startCycle) {
+  return activePerformerLayout() === 'vertical'
+    ? VERTICAL_DENSE_SYSTEM_CYCLES
+    : VERTICAL_SYSTEM_CYCLES;
+}
+
+function windowStartForLayout(cycle) {
+  const ci = Math.max(0, Math.floor(cycle));
+  const layout = activePerformerLayout();
+  if (layout === 'horizontal') return Math.max(0, ci - 1);
+  if (layout === 'vertical') return ci;
+  return ci;
+}
+
+function resetVerticalMotion() {
+  performerView.verticalStepPx = 0;
+  performerView.verticalTravelPx = 0;
+  performerView.verticalOffsetPx = 0;
+  performerView.verticalBaseXPx = 0;
+  performerView.verticalBaseYPx = 0;
+  performerView.verticalDense = false;
+  performerView.verticalSystemCycles = VERTICAL_SYSTEM_CYCLES;
+  performerView.verticalStaffCount = 0;
+  performerView.verticalAnchoredStaffCount = 0;
+}
+
+function updatePerformerToolbar() {
+  document.querySelectorAll('[data-performer-layout]').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.performerLayout === performerView.layout));
+  });
+
+  const activeTheme = document.body.dataset.performerTheme || 'blue';
+  document.querySelectorAll('.performer-theme-btn[data-performer-theme]').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.performerTheme === activeTheme));
+  });
+
+  document.querySelectorAll('[data-size-preset]').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.sizePreset === performerView.sizePreset));
+  });
+  document.getElementById('grandStaffBtn')?.setAttribute(
+    'aria-pressed',
+    String(performerView.grandStaff)
+  );
+
+  const sourceIsPlayed = document.getElementById('staffSourceOpt').value === 'played';
+  const status = document.getElementById('performerLayoutStatus');
+  const descriptions = {
+    page: `Page · ${document.getElementById('cyclesOpt').value} cycle view`,
+    horizontal: 'Horizontal · 4 visible / 12 buffered',
+    vertical: 'Vertical · infinite 2-cycle systems'
+  };
+  const clockDescription = clockIsLive()
+    ? `following Tidal at ${remoteClock.cps.toFixed(3)} cps`
+    : playback.playing ? 'manual preview running'
+      : remoteClock.at > 0 ? 'Tidal stopped' : 'waiting for Tidal';
+  const sizeLabel = performerView.sizePreset === 'tablet' ? 'Tablet' : 'Computer';
+  status.textContent = descriptions[performerView.layout] + ` · ${sizeLabel}` +
+    ` · ${clockDescription}` +
+    (sourceIsPlayed && performerView.layout !== 'page' ? ' · Played source cannot preview future cycles' : '');
+  status.classList.toggle('warning', sourceIsPlayed && performerView.layout !== 'page');
+}
+
+function setPerformerLayout(layout, { render = true } = {}) {
+  if (!['page', 'horizontal', 'vertical'].includes(layout)) return;
+  const previousLayout = performerView.layout;
+  resetVerticalMotion();
+  const enteringHorizontal = layout === 'horizontal' &&
+    (previousLayout !== 'horizontal' || !document.getElementById('horizontalStrip'));
+  const enteringVertical = layout === 'vertical' &&
+    (previousLayout !== 'vertical' || !document.getElementById('verticalStrip'));
+  performerView.layout = layout;
+  performerView.paused = false;
+  document.body.classList.toggle('performer-horizontal', layout === 'horizontal');
+  document.body.classList.toggle('performer-vertical', layout === 'vertical');
+  playback.windowStart = windowStartForLayout(currentCycleFloat());
+  document.getElementById('scoreViewport').style.height = '';
+  if (enteringHorizontal) ensureHorizontalStrip();
+  if (enteringVertical) ensureVerticalStrip();
+  updatePerformerToolbar();
+  if (render) renderCurrent();
+}
+
+function setPerformerTheme(theme) {
+  if (!['blue', 'pink', 'acid', 'cream'].includes(theme)) return;
+  document.body.dataset.performerTheme = theme;
+  try { localStorage.setItem('performerTheme', theme); } catch {}
+  updatePerformerToolbar();
+}
+
+function setPerformerSizePreset(size, { render = true } = {}) {
+  if (!['computer', 'tablet'].includes(size)) return;
+  performerView.sizePreset = size;
+  document.body.dataset.performerSize = size;
+  updatePerformerToolbar();
+  if (render && document.body.classList.contains('performer')) {
+    if (activePerformerLayout() === 'vertical') ensureVerticalStrip();
+    renderCurrent();
+  }
+}
+
+// Reflects the explicit playing/explicitlyStopped flags (set by applyRemoteTransport below) rather
+// than a pure recency check — so an explicit Tidal stop is detected immediately, not after a
+// stale-timeout window.
+function clockIsLive() { return remoteClock.playing && remoteClock.at > 0 && remoteClock.cps > 0; }
 
 function currentCycleFloat() {
   if (clockIsLive())
     return remoteClock.cycle + (performance.now() - remoteClock.at) / 1000 * remoteClock.cps;
   if (playback.playing)
     return playback.cycleIndex + Math.min(1, (Date.now() - playback.currentCycleStart) / getCycleMs());
+  if (remoteClock.at > 0) return remoteClock.cycle;
   return playback.cycleIndex;
 }
 
@@ -3016,6 +4260,485 @@ function flashPulse() {
   p.classList.add('flash');
 }
 
+// Measure the horizontal layout ONCE per render: px-per-cycle (buffered music width ÷
+// measure count) and the base x of the first buffered cycle, in viewport coords. Any
+// transform already applied cancels in the width difference and is subtracted for the base.
+// ─── Append-only chunked horizontal scroll ─────────────────────────────────────
+// Each chunk (HORIZONTAL_CHUNK_CYCLES cycles) is engraved by Verovio exactly once and appended
+// to #horizontalStrip at a fixed xOffset — never moved or re-rendered again. The whole strip is
+// translated as one GPU transform (positionHorizontalScoreChunked), driven by the same rAF loop
+// as before. This is what makes the "immutable past" / "no re-layout" / "never runs out of
+// upcoming bars" properties hold: there's no monolithic buffer to replace, only new chunks
+// appended ahead of the playhead and old ones removed once fully scrolled past.
+
+// Returns the chunk containing cycleFloat, or the nearest one if we're ahead of/behind everything
+// generated so far (can happen for one frame right after a fresh entry or a slow tick).
+function findHorizontalChunkAt(cycleFloat) {
+  const chunks = performerView.hChunks;
+  if (!chunks.length) return null;
+  for (const ch of chunks) if (cycleFloat < ch.cycleEnd) return ch;
+  return chunks[chunks.length - 1];
+}
+
+function positionHorizontalScoreChunked(cycleFloat) {
+  if (activePerformerLayout() !== 'horizontal' || performerView.paused) return;
+  const strip = document.getElementById('horizontalStrip');
+  const viewport = document.getElementById('scoreViewport');
+  const chunk = findHorizontalChunkAt(cycleFloat);
+  if (!strip || !viewport || !chunk) return;
+
+  const withinChunkCycles = Math.max(0, cycleFloat - chunk.cycleStart);
+  const perCycle = chunk.widthPx / HORIZONTAL_CHUNK_CYCLES;
+  const scoreX = chunk.xOffset + withinChunkCycles * perCycle;
+  const readingLineX = viewport.clientWidth * 0.28;
+  let offset = readingLineX - scoreX;
+
+  // Only clamp the LEAD-IN at cycle 0 (nothing before the very start of the strip) — there is no
+  // "far" clamp: the lazy-generation loop guarantees content is always generated ahead in time.
+  const maximum = readingLineX;
+  offset = Math.min(maximum, offset);
+
+  performerView.horizontalOffsetPx = offset;
+  strip.style.transform =
+    `translate3d(${offset.toFixed(2)}px, ${performerView.horizontalBaseYPx.toFixed(2)}px, 0)`;
+}
+
+// Identifies WHAT is currently flagged/played so a real content change (not just a re-render of
+// the same patterns) can be told apart — used to invalidate not-yet-reached chunks on a live edit
+// while leaving already-played chunks completely untouched (Phase 5: smooth pattern edits).
+function horizontalPatternsSignature(patterns) {
+  return patterns.map(p => `${p.label || ''}:${p.layersByCycle ? 'played' : (p.src || '')}:${JSON.stringify(p.chain || [])}`).join('|');
+}
+
+// Fresh entry into horizontal: (re)build the strip container and reset the ONE-TIME state a
+// whole-buffer render used to reset every time (note ids, live-note tracking, highlight timers,
+// the frozen clef choice, the scroll anchor). Nothing here is touched again until the NEXT fresh
+// entry — every subsequent chunk append is purely additive.
+function ensureHorizontalStrip() {
+  const scoreArea = document.getElementById('scoreArea');
+  scoreArea.innerHTML = '<div id="horizontalStrip" style="position:relative; height:100%;"></div>';
+  performerView.hChunks = [];
+  performerView.hStripWidth = 0;
+  performerView.hClef = null;
+  performerView.hSignature = null;
+  performerView.horizontalOffsetPx = 0;
+  performerView.horizontalBaseYPx = 0;
+  noteIdSeq = 1;
+  liveNotes = [];
+  for (const h of activeHighlight.values()) clearTimeout(h.timer);
+  activeHighlight.clear();
+}
+
+// Called every render (renderLivePattern/renderPattern) while in horizontal — records the latest
+// patterns/render options for the lazy-generation loop to consume, and invalidates any chunk that
+// hasn't been REACHED yet when the underlying pattern actually changed (a pure re-render of the
+// same patterns, e.g. from an unrelated UI update, must NOT discard already-generated chunks).
+function syncHorizontalChunks(patterns, opts) {
+  const previousPatterns = performerView.hPatterns;
+  const structureChanged = previousPatterns !== null &&
+    (previousPatterns.length !== patterns.length ||
+      previousPatterns.some((p, i) =>
+        p.label !== patterns[i]?.label ||
+        Boolean(p.layersByCycle) !== Boolean(patterns[i]?.layersByCycle)));
+  const stripMissing = !document.getElementById('horizontalStrip');
+  const sig = horizontalPatternsSignature(patterns);
+
+  // A staff added/removed/replaced changes the height and vertical fit of every chunk, so rebuild
+  // from the current cycle immediately. Also restore the strip after hush/stop blanked #scoreArea;
+  // otherwise the lazy generator has nowhere to append and Horizontal stays empty until a mode
+  // round-trip happens to call ensureHorizontalStrip().
+  if (structureChanged || stripMissing) {
+    ensureHorizontalStrip();
+    performerView.hPatterns = patterns;
+    performerView.hOpts = opts;
+    performerView.hSignature = sig;
+    return;
+  }
+
+  performerView.hPatterns = patterns;
+  performerView.hOpts = opts;
+  if (performerView.hSignature === null) { performerView.hSignature = sig; return; }
+  if (sig === performerView.hSignature) return;
+  performerView.hSignature = sig;
+  const cutoff = Math.floor(currentCycleFloat());
+  performerView.hChunks = performerView.hChunks.filter(ch => {
+    if (ch.cycleStart >= cutoff) { ch.el.remove(); return false; } // not yet reached — stale, drop
+    return true; // already at/behind the reading line — immutable, keep exactly as engraved
+  });
+  // hStripWidth must shrink to match what's actually left after dropping invalidated chunks above —
+  // otherwise the NEXT generated chunk is placed at the OLD (now-too-far) cumulative width, throwing
+  // off every scroll-position calculation downstream (looks like "stopped updating"/"blank" until a
+  // full mode round-trip, which resets this via ensureHorizontalStrip, papers over it).
+  const lastKept = performerView.hChunks[performerView.hChunks.length - 1];
+  performerView.hStripWidth = lastKept ? lastKept.xOffset + lastKept.widthPx : 0;
+}
+
+// Scale ONE chunk to the preset's target notehead size. Independent per chunk (no shared "fit a
+// window" math) — since notehead glyph size at a fixed Verovio render scale doesn't vary with
+// note density, this naturally lands on the SAME size for a sparse solo chunk, a dense ensemble
+// chunk, or a chord-stack chunk: they differ in WIDTH, never in note size (real notation behavior).
+function fitHorizontalChunk(svgEl) {
+  const rect0 = svgEl.getBoundingClientRect();
+  const naturalW = rect0.width || parseFloat(svgEl.getAttribute('width')) || 1;
+  const naturalH = rect0.height || parseFloat(svgEl.getAttribute('height')) || 1;
+  const target = performerView.sizePreset === 'tablet' ? PERFORMER_HEAD_TABLET : PERFORMER_HEAD_COMPUTER;
+  const headH0 = noteheadHeight(svgEl, naturalH);
+  const headFit = target / Math.max(1, headH0);
+  // Unlike page/vertical (fitPerformerToViewport), horizontal targets a fixed notehead size so
+  // solo/dense/chord-stack content all render at the same size — but that alone doesn't guard
+  // against a multi-voice chunk (several stacked staves) simply being taller than the actual
+  // score viewport. Clamp by the real available height too, same as page/vertical already do.
+  const viewport = document.getElementById('scoreViewport');
+  const availableH = viewport ? Math.max(120, viewport.clientHeight - PERFORMER_STAGE_PADDING * 2) : Infinity;
+  const heightFit = availableH / naturalH;
+  // A dense chunk (many simultaneous voices/staves) can demand a heightFit well below what's
+  // still readable. Below the legibility floor, stop shrinking and let the viewport scroll
+  // vertically instead (see .performer-horizontal .score-viewport overflow-y) — same trade-off
+  // page mode already makes: scroll rather than silently shrink notation into illegibility.
+  const legibilityFloor = HORIZONTAL_HEAD_MIN / Math.max(1, headH0);
+  // On a landscape tablet the performer explicitly needs every active d-staff visible inside
+  // the score square at once. Allow Tablet + Horizontal to scale uniformly below the desktop
+  // legibility floor when an ensemble is taller than the available stage. Computer retains the
+  // established floor/scroll behaviour exactly.
+  const requestedFit = Math.min(headFit, heightFit, HORIZONTAL_FIT_MAX);
+  const tabletLandscape = performerView.sizePreset === 'tablet' &&
+    window.matchMedia('(orientation: landscape)').matches;
+  const fit = tabletLandscape
+    ? Math.max(0.08, requestedFit)
+    : Math.max(0.2, legibilityFloor, requestedFit);
+  return setSvgScale(svgEl, naturalW, naturalH, fit);
+}
+
+// Engrave exactly ONE new chunk (Verovio call happens here and ONLY here for horizontal) and
+// append it to the strip — never touches any previously-appended chunk element.
+function generateNextHorizontalChunk() {
+  const patterns = performerView.hPatterns;
+  if (!patterns) return;
+  const chunks = performerView.hChunks;
+  const cycleStart = chunks.length ? chunks[chunks.length - 1].cycleEnd
+    : Math.max(0, Math.floor(currentCycleFloat()));
+  const opts = performerView.hOpts || {};
+  const autoClef = performerView.hClef == null;
+  const { mei } = patternsToMEI(patterns, HORIZONTAL_CHUNK_CYCLES, {
+    ...opts, startCycle: cycleStart,
+    autoClef, clefStrategy: 'ledger',
+    resetIds: false, resetHighlights: false, finalBarline: false,
+    // Treat every chunk boundary like a new printed system: repeat clef/orbit label and retain
+    // absolute bar numbering so the small physical seam becomes an intentional reading landmark.
+    showClefLabel: true,
+    absoluteMeasureNumbers: true
+  });
+  const renderOptions = {
+    pageWidth: 100000, pageHeight: 20000,
+    // Left/right margins stay small on purpose: chunks are placed edge-to-edge in the strip via
+    // cumulative widthPx, so each chunk's own margin becomes dead space with NO staff lines between
+    // it and the next chunk — a wide margin here reads as a visible "disconnection" gap in the
+    // staff, not just empty padding.
+    pageMarginTop: 24, pageMarginBottom: 24, pageMarginLeft: 8, pageMarginRight: 8,
+    scale: PERFORMER_BASE_SCALE, adjustPageWidth: 1, adjustPageHeight: 1,
+    breaks: 'none', spacingStaff: 9, spacingSystem: 10, minLastJustification: 0,
+    spacingLinear: 0.04, spacingNonLinear: 0.55
+  };
+  const svgHtml = vrvToolkit.renderData(mei, renderOptions);
+  const wrap = document.createElement('div');
+  wrap.innerHTML = svgHtml;
+  const svgEl = wrap.firstElementChild;
+  if (!svgEl) return;
+  svgEl.style.filter = '';
+  svgEl.style.position = 'absolute';
+  svgEl.style.top = '0';
+  svgEl.style.left = `${performerView.hStripWidth}px`;
+  svgEl.style.maxWidth = 'none';
+  svgEl.style.maxHeight = 'none';
+
+  const strip = document.getElementById('horizontalStrip');
+  if (!strip) return;
+  strip.appendChild(svgEl);
+  fitHorizontalChunk(svgEl);
+  // Every chunk repeats its clef, orbit label, and absolute bar number like a printed system.
+  const widthPx = svgEl.getBoundingClientRect().width || 1;
+
+  const chunk = { cycleStart, cycleEnd: cycleStart + HORIZONTAL_CHUNK_CYCLES, el: svgEl,
+    xOffset: performerView.hStripWidth, widthPx };
+  performerView.hChunks.push(chunk);
+  performerView.hStripWidth += widthPx;
+
+  if (performerView.hClef == null) {
+    // Freeze the clef decision from the first chunk so it can't flip between later chunks.
+    performerView.hClef = opts.clef || 'treble';
+    const viewport = document.getElementById('scoreViewport');
+    if (viewport) {
+      // Anchor the strip's Y position ONCE, from the first chunk — never recomputed afterwards,
+      // which is what stops the reading position from drifting/jumping between chunks.
+      const viewportRect = viewport.getBoundingClientRect();
+      const svgRect = svgEl.getBoundingClientRect();
+      const content = scoreContentRect(svgEl);
+      performerView.horizontalBaseYPx =
+        (viewport.clientHeight - content.height) / 2 - (content.top - svgRect.top) -
+        (svgRect.top - viewportRect.top);
+    }
+  }
+  // Catch any OSC event that already arrived for this chunk's cycles before it was generated.
+  sweepLiveNotes();
+}
+
+// Runs every masterLoop tick while in horizontal: keep at least HORIZONTAL_LOOKAHEAD_CYCLES of
+// music generated ahead of the playhead. One chunk per tick is enough to catch up within a few
+// frames without a synchronous burst of Verovio calls.
+function maybeGenerateHorizontalChunks(cf) {
+  if (activePerformerLayout() !== 'horizontal') return;
+  if (!document.getElementById('horizontalStrip') || !performerView.hPatterns) return;
+  const chunks = performerView.hChunks;
+  const lastEnd = chunks.length ? chunks[chunks.length - 1].cycleEnd : -1;
+  if (lastEnd < cf + HORIZONTAL_LOOKAHEAD_CYCLES) generateNextHorizontalChunk();
+}
+
+// Bounds DOM/memory growth over a long performance — removes chunks fully scrolled past the
+// reading line. Never touches a chunk that's still visible or upcoming.
+function gcHorizontalChunks(cf) {
+  if (activePerformerLayout() !== 'horizontal') return;
+  const keepFrom = Math.floor(cf) - HORIZONTAL_GC_BEHIND_CYCLES;
+  performerView.hChunks = performerView.hChunks.filter(ch => {
+    if (ch.cycleEnd < keepFrom) { ch.el.remove(); return false; }
+    return true;
+  });
+}
+
+// ─── Append-only infinite vertical scroll ────────────────────────────────────
+// Vertical uses the same immutable-past principle as Horizontal, but stacks one engraved system
+// per chunk downward. The strip alone moves upward; no periodic buffer replacement can reset it.
+function ensureVerticalStrip() {
+  const scoreArea = document.getElementById('scoreArea');
+  scoreArea.innerHTML = '<div id="verticalStrip"></div>';
+  performerView.vChunks = [];
+  performerView.vStripHeight = 0;
+  performerView.vPatterns = null;
+  performerView.vOpts = null;
+  performerView.vSignature = null;
+  performerView.vOffsetPx = 0;
+  noteIdSeq = 1;
+  liveNotes = [];
+  for (const h of activeHighlight.values()) clearTimeout(h.timer);
+  activeHighlight.clear();
+}
+
+function syncVerticalChunks(patterns, opts) {
+  const previous = performerView.vPatterns;
+  const structureChanged = previous !== null &&
+    (previous.length !== patterns.length ||
+      previous.some((p, i) =>
+        p.label !== patterns[i]?.label ||
+        Boolean(p.layersByCycle) !== Boolean(patterns[i]?.layersByCycle)));
+  const stripMissing = !document.getElementById('verticalStrip');
+  const signature = [
+    horizontalPatternsSignature(patterns),
+    JSON.stringify(opts),
+    performerView.sizePreset
+  ].join('::');
+  const contentChanged =
+    performerView.vSignature !== null && signature !== performerView.vSignature;
+
+  if (structureChanged || stripMissing) ensureVerticalStrip();
+
+  performerView.verticalDense = patterns.length >= 3;
+  performerView.verticalStaffCount = patterns.length;
+  performerView.vPatterns = patterns;
+  performerView.vOpts = opts;
+
+  if (performerView.vSignature === null) {
+    performerView.vSignature = signature;
+    updatePerformerToolbar();
+    return;
+  }
+  if (!contentChanged) {
+    updatePerformerToolbar();
+    return;
+  }
+  performerView.vSignature = signature;
+
+  // Match Horizontal's immutable-past behavior on live edits: keep systems already reached and
+  // regenerate only future systems. Remove their corresponding note metadata as well, so no stale
+  // off-DOM IDs remain eligible for highlighting.
+  const cutoff = Math.floor(currentCycleFloat());
+  const removedNotes = new Set();
+  performerView.vChunks = performerView.vChunks.filter(chunk => {
+    if (chunk.cycleStart >= cutoff) {
+      chunk.el.remove();
+      for (const note of chunk.liveNoteRecords) removedNotes.add(note);
+      return false;
+    }
+    return true;
+  });
+  if (removedNotes.size) liveNotes = liveNotes.filter(note => !removedNotes.has(note));
+  const last = performerView.vChunks[performerView.vChunks.length - 1];
+  performerView.vStripHeight = last ? last.yOffset + last.heightPx : 0;
+  updatePerformerToolbar();
+}
+
+function fitVerticalChunk(svg, viewport) {
+  const rect = svg.getBoundingClientRect();
+  const naturalW = rect.width || parseFloat(svg.getAttribute('width')) || 1;
+  const naturalH = rect.height || parseFloat(svg.getAttribute('height')) || 1;
+  const targetHead = performerView.sizePreset === 'tablet'
+    ? PERFORMER_HEAD_TABLET
+    : PERFORMER_HEAD_COMPUTER;
+  const headFit = targetHead / Math.max(1, noteheadHeight(svg, naturalH));
+  const widthFit = Math.max(240, viewport.clientWidth - PERFORMER_STAGE_PADDING * 2) / naturalW;
+  // A single staff remains readable at the target note size even when ledger lines or tuplet
+  // brackets make one system's bounding box unusually tall. Height-clamping those isolated
+  // systems made consecutive chunks visibly jump between large and tiny notation.
+  const heightFit = performerView.verticalStaffCount <= 1
+    ? Infinity
+    : Math.max(180, viewport.clientHeight * 0.82) / naturalH;
+  const fit = Math.max(0.08, Math.min(6, headFit, widthFit, heightFit));
+  return setSvgScale(svg, naturalW, naturalH, fit);
+}
+
+function generateNextVerticalChunk() {
+  const patterns = performerView.vPatterns;
+  const strip = document.getElementById('verticalStrip');
+  const viewport = document.getElementById('scoreViewport');
+  if (!patterns || !strip || !viewport) return;
+
+  const chunks = performerView.vChunks;
+  const cycleStart = chunks.length
+    ? chunks[chunks.length - 1].cycleEnd
+    : Math.max(0, Math.floor(currentCycleFloat()));
+  const systemCycles = chooseVerticalSystemCycles(patterns, cycleStart);
+  performerView.verticalSystemCycles = systemCycles;
+  const opts = performerView.vOpts || {};
+  const liveNoteStart = liveNotes.length;
+  const { mei } = patternsToMEI(patterns, systemCycles, {
+    ...opts,
+    startCycle: cycleStart,
+    systemBreakEvery: 0,
+    autoClef: true,
+    clefStrategy: 'median',
+    resetIds: false,
+    resetHighlights: false,
+    finalBarline: false,
+    absoluteMeasureNumbers: true
+  });
+  const renderOptions = {
+    pageWidth: Math.max(400, viewport.clientWidth),
+    pageHeight: 20000,
+    pageMarginTop: 20,
+    pageMarginBottom: 20,
+    pageMarginLeft: 28,
+    pageMarginRight: 28,
+    scale: PERFORMER_BASE_SCALE,
+    adjustPageWidth: 0,
+    adjustPageHeight: 1,
+    breaks: 'none',
+    spacingStaff: 9,
+    spacingSystem: 10,
+    minLastJustification: 0,
+    spacingLinear: 0.04,
+    spacingNonLinear: 0.55
+  };
+  const wrap = document.createElement('div');
+  wrap.innerHTML = vrvToolkit.renderData(mei, renderOptions);
+  const svg = wrap.firstElementChild;
+  if (!svg) return;
+
+  svg.style.filter = '';
+  svg.style.position = 'absolute';
+  svg.style.top = `${performerView.vStripHeight}px`;
+  svg.style.maxWidth = 'none';
+  svg.style.maxHeight = 'none';
+  strip.appendChild(svg);
+  fitVerticalChunk(svg, viewport);
+
+  const svgRect = svg.getBoundingClientRect();
+  const widthPx = svgRect.width || 1;
+  const heightPx = svgRect.height || 1;
+  svg.style.left = `${Math.max(0, (viewport.clientWidth - widthPx) / 2)}px`;
+  const content = scoreContentRect(svg);
+  const contentTopPx = content.top - svgRect.top;
+  const chunk = {
+    cycleStart,
+    cycleEnd: cycleStart + systemCycles,
+    el: svg,
+    yOffset: performerView.vStripHeight,
+    heightPx,
+    contentTopPx,
+    liveNoteRecords: liveNotes.slice(liveNoteStart)
+  };
+  chunks.push(chunk);
+  performerView.vStripHeight += heightPx;
+  sweepLiveNotes();
+}
+
+function findVerticalChunkAt(cycleFloat) {
+  const chunks = performerView.vChunks;
+  if (!chunks.length) return null;
+  for (const chunk of chunks) if (cycleFloat < chunk.cycleEnd) return chunk;
+  return chunks[chunks.length - 1];
+}
+
+function positionVerticalScore(cycleFloat) {
+  if (activePerformerLayout() !== 'vertical' || performerView.paused) return;
+  const strip = document.getElementById('verticalStrip');
+  const viewport = document.getElementById('scoreViewport');
+  const chunk = findVerticalChunkAt(cycleFloat);
+  if (!strip || !viewport || !chunk) return;
+
+  const chunks = performerView.vChunks;
+  const index = chunks.indexOf(chunk);
+  const next = chunks[index + 1];
+  const anchor = chunk.yOffset + chunk.contentTopPx;
+  const nextAnchor = next
+    ? next.yOffset + next.contentTopPx
+    : anchor + chunk.heightPx;
+  const progress = Math.max(0, cycleFloat - chunk.cycleStart) /
+    Math.max(1, chunk.cycleEnd - chunk.cycleStart);
+  const scoreY = anchor + (nextAnchor - anchor) * progress;
+  const readingY = viewport.clientHeight * 0.72;
+  const offset = readingY - scoreY;
+  performerView.vOffsetPx = offset;
+  strip.style.transform = `translate3d(0, ${offset.toFixed(2)}px, 0)`;
+}
+
+function maybeGenerateVerticalChunks(cycleFloat) {
+  if (activePerformerLayout() !== 'vertical') return;
+  if (!document.getElementById('verticalStrip') || !performerView.vPatterns) return;
+  const chunks = performerView.vChunks;
+  const lastEnd = chunks.length ? chunks[chunks.length - 1].cycleEnd : -1;
+  const lookahead = VERTICAL_SYSTEM_CYCLES * VERTICAL_LOOKAHEAD_SYSTEMS;
+  if (lastEnd < cycleFloat + lookahead) generateNextVerticalChunk();
+}
+
+function gcVerticalChunks(cycleFloat) {
+  if (activePerformerLayout() !== 'vertical') return;
+  const keepFrom = Math.floor(cycleFloat) -
+    VERTICAL_SYSTEM_CYCLES * VERTICAL_GC_BEHIND_SYSTEMS;
+  const removedNotes = new Set();
+  performerView.vChunks = performerView.vChunks.filter(chunk => {
+    if (chunk.cycleEnd < keepFrom) {
+      chunk.el.remove();
+      for (const note of chunk.liveNoteRecords) removedNotes.add(note);
+      return false;
+    }
+    return true;
+  });
+  if (removedNotes.size) liveNotes = liveNotes.filter(note => !removedNotes.has(note));
+}
+
+function maybeAdvanceScoreWindow(cycleFloat) {
+  if (performerView.paused) return;
+  const ci = Math.max(0, Math.floor(cycleFloat));
+  const layout = activePerformerLayout();
+
+  // Both scrolling modes are append-only and never replace a whole score window.
+  if (layout === 'horizontal' || layout === 'vertical') return;
+
+  const numCycles = getRenderCycleCount();
+  if (ci < playback.windowStart || ci >= playback.windowStart + numCycles) {
+    playback.windowStart = windowStartForLayout(ci); // snap to the aligned page boundary
+    renderCurrent();
+  }
+}
+
 // One always-running animation loop drives: the cycle pulse ring, the staff
 // playhead, the graphic-score playhead, cycle advancement when following
 // Tidal's clock, and the clock-source display.
@@ -3024,14 +4747,15 @@ let wasClockLive = false;
 function masterLoop() {
   const cf = currentCycleFloat();
   const live = clockIsLive();
-  const numCycles = parseInt(document.getElementById('cyclesOpt').value);
+  const numCycles = getRenderCycleCount();
 
-  // Live→internal transition (Tidal stopped): re-render once so the graphic
-  // falls back from "what played" to the typed patterns view. Play/Stop only
-  // drive the internal clock, so while Tidal's clock is live they're greyed
-  // out instead of silently doing nothing.
+  // Tidal transport transitions update the controls immediately. A stop keeps
+  // the last extrapolated score position frozen until Tidal starts again.
   if (wasClockLive !== live) {
     wasClockLive = live;
+    const performerBridgeState = document.getElementById('performerBridgeState');
+    if (performerBridgeState?.dataset.state === 'connected')
+      performerBridgeState.textContent = live ? 'Tidal live' : 'Bridge connected';
     const playBtn = document.getElementById('playBtn');
     const stopBtn = document.getElementById('stopBtn');
     if (live) {
@@ -3043,6 +4767,7 @@ function masterLoop() {
       setPlayBtnState(playback.playing);
       renderCurrent();
     }
+    updatePerformerToolbar();
   }
 
   if (live) {
@@ -3050,26 +4775,37 @@ function masterLoop() {
     if (ci !== playback.cycleIndex && ci >= 0) {
       playback.cycleIndex = ci;
       flashPulse();
-      // Keep the same page of measures on screen — notes are highlighted
-      // in place as they play — and only pull in a fresh page once the
-      // last displayed measure has been reached.
-      if (ci >= playback.windowStart + numCycles) {
-        playback.windowStart = ci;
-        renderCurrent();
-      }
     }
   }
 
-  const windowPhase = Math.min(1, Math.max(0, (cf - playback.cycleIndex) / numCycles));
   const cyclePhase = cf - Math.floor(cf);
   const running = live || playback.playing;
 
-  if (running) { resolveRests(cf); resolveUpcomingNotes(cf); }
+  if (running) {
+    maybeAdvanceScoreWindow(cf);
+    resolveRests(cf);
+    resolveUpcomingNotes(cf);
+  }
+  maybeGenerateHorizontalChunks(cf); // append-ahead lazy generation — cheap early-exit if satisfied
+  gcHorizontalChunks(cf);            // drop chunks fully scrolled past
+  maybeGenerateVerticalChunks(cf);
+  gcVerticalChunks(cf);
+  positionHorizontalScoreChunked(cf);
+  positionVerticalScore(cf);
+  const windowPhase = Math.min(1, Math.max(0, (cf - playback.windowStart) / numCycles));
 
   const pct = (running ? cyclePhase * 100 : 0).toFixed(1);
+  const pulseColour = document.body.classList.contains('performer') ? 'currentColor' : 'var(--accent)';
+  const pulseRest = document.body.classList.contains('performer')
+    ? 'color-mix(in srgb, currentColor 18%, transparent)'
+    : 'var(--pulse-rest)';
   document.getElementById('cyclePulse').style.background =
-    `conic-gradient(var(--accent) ${pct}%, var(--pulse-rest) ${pct}%)`;
-  document.getElementById('cyclePulseNum').textContent = Math.floor(cf);
+    `conic-gradient(${pulseColour} ${pct}%, ${pulseRest} ${pct}%)`;
+  // The cycle circle shows the live BPM in performer mode, the cycle number otherwise.
+  document.getElementById('cyclePulseNum').textContent =
+    document.body.classList.contains('performer')
+      ? Math.round((clockIsLive() ? remoteClock.cps : getCps()) * 60 * BEATS_PER_CYCLE)
+      : Math.floor(cf);
 
 
   document.querySelectorAll('.graphic-playhead').forEach(el => {
@@ -3077,27 +4813,300 @@ function masterLoop() {
     el.style.display = running ? '' : 'none';
   });
 
-  document.getElementById('clockSource').value =
-    live ? `Tidal · ${remoteClock.cps.toFixed(3)} cps` : 'internal';
+  document.getElementById('clockSource').value = live
+    ? `Tidal · ${remoteClock.cps.toFixed(3)} cps`
+    : remoteClock.at > 0 ? 'Tidal · stopped' : 'internal';
 
   requestAnimationFrame(masterLoop);
 }
 
 function renderToScoreArea(mei) {
-  const svg = vrvToolkit.renderData(mei, {
+  // NOTE: horizontal never reaches this function — renderLivePattern/renderPattern redirect to
+  // the append-only chunked pipeline (syncHorizontalChunks/generateNextHorizontalChunk) before
+  // getting here. This still serves page/vertical performer modes and the plain dev view.
+  const layout = activePerformerLayout();
+  const inPerformer = document.body.classList.contains('performer');
+  const renderOptions = {
     pageWidth: 2400, pageHeight: 800,
     pageMarginTop: 80, pageMarginBottom: 80,
     pageMarginLeft: 80, pageMarginRight: 80,
     scale: 40, adjustPageWidth: 1, adjustPageHeight: 1,
-  });
+  };
+  // PERFORMER modes: render at a base scale + even spacing; fitPerformerScore then scales the
+  // SVG to FILL the mode's viewport (clamped to a readable staff band).
+  if (inPerformer) {
+    const vpW = Math.max(400, (document.getElementById('scoreViewport') || {}).clientWidth || 900);
+    renderOptions.scale = PERFORMER_BASE_SCALE;
+    renderOptions.pageHeight = 20000;
+    renderOptions.adjustPageHeight = 1;
+    renderOptions.pageMarginTop = 24;
+    renderOptions.pageMarginBottom = 24;
+    renderOptions.pageMarginLeft = 36;
+    renderOptions.pageMarginRight = 36;
+    renderOptions.spacingStaff = 9;
+    renderOptions.spacingSystem = 10;
+    renderOptions.minLastJustification = 0;
+    // Even, density-independent spacing (Verovio defaults ≈ 0.25/0.6). Keeps bars looking uniform.
+    renderOptions.spacingLinear = 0.04;
+    renderOptions.spacingNonLinear = 0.55;
+    if (layout === 'vertical') {
+      renderOptions.pageWidth = vpW;      // 4-cycle systems fill the viewport width
+      renderOptions.breaks = 'encoded';
+      renderOptions.adjustPageWidth = 0;
+    } else { // page (4 / 8 bars)
+      renderOptions.pageWidth = vpW;      // bars wrap into justified systems that fill the width
+      renderOptions.breaks = 'encoded';   // 4 bars = one system; 8 bars = encoded 4 + 4
+      renderOptions.adjustPageWidth = 0;
+    }
+  }
+
+  const svg = vrvToolkit.renderData(mei, renderOptions);
   const scoreArea = document.getElementById('scoreArea');
   scoreArea.innerHTML = svg;
   const svgEl = scoreArea.querySelector('svg');
   if (svgEl) {
     svgEl.style.filter = '';
-    svgEl.style.maxWidth = '100%';
-    svgEl.style.height = 'auto';
+    if (inPerformer) {
+      // Natural size — do NOT scale the SVG (scaling is what made notes resize with content).
+      // These inline styles override the CSS width:96% / max-height:62vh that page mode inherited.
+      svgEl.style.maxWidth = 'none';
+      svgEl.style.width = 'auto';
+      svgEl.style.height = 'auto';
+      svgEl.style.maxHeight = 'none';
+    } else {
+      svgEl.style.maxWidth = '100%';
+      svgEl.style.height = 'auto';
+    }
+    preparePerformerScore(svgEl);
   }
+}
+
+function unionClientRects(elements) {
+  const rects = elements.map(el => el.getBoundingClientRect())
+    .filter(r => r.width > 0 && r.height > 0);
+  if (!rects.length) return null;
+  const left = Math.min(...rects.map(r => r.left));
+  const top = Math.min(...rects.map(r => r.top));
+  const right = Math.max(...rects.map(r => r.right));
+  const bottom = Math.max(...rects.map(r => r.bottom));
+  return { left, top, right, bottom, width: right - left, height: bottom - top };
+}
+
+// Systems give a tighter and more musically meaningful box than the SVG page.
+// In particular, this ignores Verovio's large page margins while still including
+// intentional ledger lines, articulations, clefs and measure numbers.
+function scoreContentRect(svg) {
+  const systems = [...svg.querySelectorAll('g.system, .system')];
+  return unionClientRects(systems) || svg.getBoundingClientRect();
+}
+
+function noteheadHeight(svg, fallbackHeight) {
+  const heads = [...svg.querySelectorAll('g.notehead, .notehead')].slice(0, 10)
+    .map(el => el.getBoundingClientRect().height)
+    .filter(h => h > 0)
+    .sort((a, b) => a - b);
+  // Median, not min — a single outlier glyph (measurement noise, an edge-case bbox) shouldn't
+  // drag the whole chunk's fit scale up; the median is robust and still represents the real size.
+  if (!heads.length) return Math.max(1, fallbackHeight * 0.05);
+  const mid = Math.floor(heads.length / 2);
+  return heads.length % 2 ? heads[mid] : (heads[mid - 1] + heads[mid]) / 2;
+}
+
+function setSvgScale(svg, naturalWidth, naturalHeight, fit) {
+  svg.style.width = `${(naturalWidth * fit).toFixed(1)}px`;
+  svg.style.height = `${(naturalHeight * fit).toFixed(1)}px`;
+  performerView.fitScale = fit;
+  return fit;
+}
+
+// Shared bounded fit for both size presets, used by PAGE and VERTICAL (horizontal has its own
+// per-chunk fitHorizontalChunk — see the chunked scroll section above). The music is scaled
+// toward `targetHead` (a notehead height in px) and never beyond what's needed to fit the mode's
+// visible window (~2 vertical systems, or the whole page) — so dense content still shrinks to fit.
+function fitPerformerToViewport(svg, viewport, layout, { targetHead, padding = PERFORMER_STAGE_PADDING }) {
+  const rect0 = svg.getBoundingClientRect();
+  const naturalW = rect0.width || parseFloat(svg.getAttribute('width')) || 1;
+  const naturalH = rect0.height || parseFloat(svg.getAttribute('height')) || 1;
+  const viewportW = Math.max(240, viewport.clientWidth - padding * 2);
+  const viewportH = Math.max(180, viewport.clientHeight - padding * 2);
+  const headH0 = noteheadHeight(svg, naturalH);
+  const headFit = targetHead / Math.max(1, headH0);
+  const systems = [...svg.querySelectorAll('g.system, .system')];
+  const verticalStaffCount = layout === 'vertical' && systems[0]
+    ? systems[0].querySelectorAll('g.staff, .staff').length
+    : 0;
+  const denseVertical = layout === 'vertical' && verticalStaffCount >= 3;
+  if (layout === 'vertical') {
+    performerView.verticalStaffCount = verticalStaffCount;
+    performerView.verticalDense = denseVertical;
+  }
+
+  // NOTE: the ratio here must be computed against the SAME dimensions setSvgScale below actually
+  // scales (naturalW/naturalH — the full SVG including Verovio's page margins around the music),
+  // not the tighter `content` box. Using content.height as the denominator while applying the
+  // resulting fit to the taller naturalH under-shrinks: the rendered SVG ends up taller than
+  // viewportH even though the music itself would have fit — exactly the page-mode overflow
+  // previously reported. vertical overrides these with its own visible-window math.
+  let widthFit = viewportW / Math.max(1, naturalW);
+  let heightFit = viewportH / Math.max(1, naturalH);
+
+  if (layout === 'vertical' && systems.length >= 2) {
+    const first = systems[0].getBoundingClientRect();
+    if (denseVertical) {
+      // Three or more simultaneous staves become illegible when two complete systems are forced
+      // into the viewport. Give one system almost the full stage and full available width instead.
+      widthFit = viewportW / Math.max(1, first.width);
+      heightFit = viewportH * 0.82 / Math.max(1, first.height);
+    } else {
+      const firstTwo = unionClientRects(systems.slice(0, 2));
+      widthFit = viewportW / Math.max(1, firstTwo.width);
+      if (systems.length >= 3) {
+        const third = systems[2].getBoundingClientRect();
+        heightFit = viewportH / Math.max(1, third.top - first.top);
+      } else {
+        heightFit = viewportH / Math.max(1, firstTwo.height);
+      }
+    }
+  }
+
+  // The floor only guards against a genuinely degenerate (near-zero) fit — it must never override
+  // real fit-to-box shrinking. A large ensemble (many stacked staves) can legitimately need a small
+  // scale to fit its full height; a higher floor here previously forced it larger than the viewport,
+  // overflowing/clipping the page instead of shrinking to fit.
+  const fit = Math.max(0.03, Math.min(6, headFit, widthFit, heightFit));
+  return setSvgScale(svg, naturalW, naturalH, fit);
+}
+
+function fitComputerScore(svg, viewport, layout) {
+  return fitPerformerToViewport(svg, viewport, layout, {
+    targetHead: PERFORMER_HEAD_COMPUTER, padding: PERFORMER_STAGE_PADDING
+  });
+}
+
+function fitTabletScore(svg, viewport, layout) {
+  return fitPerformerToViewport(svg, viewport, layout, {
+    targetHead: PERFORMER_HEAD_TABLET, padding: PERFORMER_STAGE_PADDING * 0.6
+  });
+}
+
+function fitPerformerScore(svg, viewport, layout) {
+  svg.style.maxWidth = 'none';
+  svg.style.maxHeight = 'none';
+  svg.style.width = 'auto';
+  svg.style.height = 'auto';
+  return performerView.sizePreset === 'computer'
+    ? fitComputerScore(svg, viewport, layout)
+    : fitTabletScore(svg, viewport, layout);
+}
+
+function alignComputerPage(svg, viewport) {
+  const viewportRect = viewport.getBoundingClientRect();
+  const content = scoreContentRect(svg);
+  const x = (viewport.clientWidth - content.width) / 2 - (content.left - viewportRect.left);
+  const y = PERFORMER_STAGE_PADDING - (content.top - viewportRect.top);
+  svg.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
+}
+
+// `freshLayout` is true only when ENTERING this layout from a different one. On a same-layout
+// re-render, the anchor is intentionally NOT recomputed — recomputing it every render made the
+// reading position visibly drift/jump. A continuous reading mode should establish its anchor once
+// and hold it until the layout changes. (Horizontal has its own analogous freeze — the Y-anchor is
+// set once from the first generated chunk in generateNextHorizontalChunk — since it no longer goes
+// through this shared page/vertical preparation path at all.)
+function prepareComputerVertical(svg, viewport, freshLayout) {
+  const systems = [...svg.querySelectorAll('g.system, .system')];
+  if (!systems.length) return;
+  const firstRect = systems[0].getBoundingClientRect();
+  const secondRect = systems[1]?.getBoundingClientRect();
+
+  // The scroll step must be at least as tall as each visible system's own rendered box — ledger
+  // lines can make a system visually taller than Verovio's nominal top-to-top spacing, and a step
+  // smaller than that lets the next system overlap/clip the current one as it scrolls through.
+  // (Always remeasured, unlike the anchor below — the buffer's own content genuinely changes.)
+  const measuredStep = secondRect ? Math.max(1, secondRect.top - firstRect.top) : Math.max(1, firstRect.height);
+  const tallestVisible = Math.max(firstRect.height, secondRect ? secondRect.height : 0);
+  performerView.verticalStepPx = Math.max(measuredStep, tallestVisible);
+
+  const staffStructureChanged =
+    performerView.verticalAnchoredStaffCount !== performerView.verticalStaffCount;
+  if (freshLayout || staffStructureChanged) {
+    const viewportRect = viewport.getBoundingClientRect();
+    const anchorRect = performerView.verticalDense
+      ? firstRect
+      : unionClientRects(systems.slice(0, 2));
+    performerView.verticalBaseXPx =
+      (viewport.clientWidth - anchorRect.width) / 2 - (anchorRect.left - viewportRect.left);
+
+    if (performerView.verticalDense) {
+      // Bottom-align one large ensemble system, then move it only through the spare space above.
+      // It stays fully visible for all four cycles instead of becoming tiny or being clipped.
+      const contentTop = Math.max(
+        PERFORMER_STAGE_PADDING,
+        viewport.clientHeight - PERFORMER_STAGE_PADDING - firstRect.height
+      );
+      performerView.verticalBaseYPx =
+        contentTop - (firstRect.top - viewportRect.top);
+      performerView.verticalTravelPx = Math.min(
+        performerView.verticalStepPx * 0.18,
+        Math.max(0, contentTop - PERFORMER_STAGE_PADDING)
+      );
+    } else {
+      // Start lower than the middle to give fast solo/duo pieces more reading lead.
+      const maximumLeadWithoutClipping = Math.max(
+        performerView.verticalStepPx,
+        viewport.clientHeight - PERFORMER_STAGE_PADDING * 2 - firstRect.height
+      );
+      const readingLead = Math.min(
+        performerView.verticalStepPx * VERTICAL_READING_LEAD_STEPS,
+        maximumLeadWithoutClipping
+      );
+      performerView.verticalBaseYPx =
+        PERFORMER_STAGE_PADDING + readingLead - (firstRect.top - viewportRect.top);
+      performerView.verticalTravelPx = performerView.verticalStepPx;
+    }
+    performerView.verticalAnchoredStaffCount = performerView.verticalStaffCount;
+    updatePerformerToolbar();
+  }
+  positionVerticalScore(currentCycleFloat());
+}
+
+// NOTE: horizontal never reaches this function — it has its own entry point
+// (ensureHorizontalStrip, called from setPerformerLayout) and never goes through
+// renderToScoreArea. Only page and vertical performer modes, and the plain dev view, arrive here.
+function preparePerformerScore(svg) {
+  const layout = activePerformerLayout();
+  const viewport = document.getElementById('scoreViewport');
+  viewport.style.height = '';
+
+  // Only reset the scroll/position state when actually ENTERING a different layout. A same-layout
+  // re-render (e.g. the vertical buffer refresh every few cycles) must keep the held offset —
+  // renderCurrent() replaces the <svg> element outright, so without this the brand-new element
+  // paints at transform:none (position zero) for a frame before the async remeasure below
+  // corrects it: a visible flash/snap-back that reads as the score jumping or "ending".
+  const freshLayout = performerView._preparedLayout !== layout;
+  performerView._preparedLayout = layout;
+  if (freshLayout) resetVerticalMotion();
+
+  if (!document.body.classList.contains('performer')) { svg.style.transform = ''; return; } // dev view
+
+  // Hold the previous frame's position synchronously (before any async remeasure) so there is no
+  // blank/zero frame on a same-layout re-render.
+  if (layout === 'vertical' && !freshLayout) {
+    svg.style.transform =
+      `translate3d(${(performerView.verticalBaseXPx || 0).toFixed(2)}px, ${(performerView.verticalOffsetPx || 0).toFixed(2)}px, 0)`;
+  } else {
+    svg.style.transform = '';
+  }
+
+  // Fill this mode's viewport (both size presets; see fitPerformerToViewport).
+  fitPerformerScore(svg, viewport, layout);
+
+  if (layout !== 'vertical') {
+    requestAnimationFrame(() => alignComputerPage(svg, viewport));
+    return;
+  }
+
+  requestAnimationFrame(() => prepareComputerVertical(svg, viewport, freshLayout));
 }
 
 // ─── 6. Playback clock ────────────────────────────────────────────────────────
@@ -3130,6 +5139,7 @@ function updateCycleUI(labels) {
 function setPlayBtnState(playing) {
   document.getElementById('playBtn').disabled = playing;
   document.getElementById('stopBtn').disabled = !playing;
+  updatePerformerToolbar();
 }
 
 // Renders whichever source is active: flagged live lines take priority,
@@ -3162,7 +5172,7 @@ function blankScore() {
   statusEl.className = 'render-status';
   document.getElementById('patternLabel').textContent = '';
   document.getElementById('scoreTitle').textContent = `silenced · cycle ${playback.cycleIndex}`;
-  renderTimeline([], parseInt(document.getElementById('cyclesOpt').value), playback.windowStart);
+  renderTimeline([], getRenderCycleCount(), playback.windowStart);
 }
 
 function playStart() {
@@ -3174,12 +5184,6 @@ function playStart() {
     playback.cycleIndex++;
     playback.currentCycleStart = Date.now();
     flashPulse();
-    // Same page-until-the-last-measure behavior as the live clock path.
-    const numCycles = parseInt(document.getElementById('cyclesOpt').value);
-    if (playback.cycleIndex >= playback.windowStart + numCycles) {
-      playback.windowStart = playback.cycleIndex;
-      renderCurrent();
-    }
   }, getCycleMs());
   setPlayBtnState(true);
 }
@@ -3193,7 +5197,7 @@ function playStop() {
 
 function playSync() {
   playback.cycleIndex = 0;
-  playback.windowStart = 0;
+  playback.windowStart = windowStartForLayout(0);
   const was = playback.playing;
   if (was) { playStop(); playStart(); }
   else renderCurrent();
@@ -3203,14 +5207,14 @@ function playSync() {
 // the target cycle, unlike the automatic live/Play advance.
 function stepCycle(delta) {
   playback.cycleIndex = Math.max(0, playback.cycleIndex + delta);
-  playback.windowStart = playback.cycleIndex;
+  playback.windowStart = windowStartForLayout(playback.cycleIndex);
   renderCurrent();
 }
 
 // ─── 7. Scratch playground renderer ──────────────────────────────────────────
 function renderPattern() {
   const patInput   = document.getElementById('patInput').value.trim();
-  const cycles     = parseInt(document.getElementById('cyclesOpt').value);
+  const cycles     = getRenderCycleCount();
   const clef       = document.getElementById('clefOpt').value;
   const mode       = document.getElementById('modeOpt').value;
   const pitchInput = document.getElementById('pitchInputOpt').value;
@@ -3220,6 +5224,7 @@ function renderPattern() {
   if (!patInput)   { statusEl.textContent = 'Please enter a pattern'; statusEl.className = 'render-status err'; return; }
   // Manually rendering the scratch box is an explicit "show me this" — lift silence.
   scoreSilenced = false;
+  const scratchPatterns = [{ label: null, src: patInput }];
 
   try {
     const events = evalPattern(patInput, cycles, playback.windowStart);
@@ -3234,13 +5239,35 @@ function renderPattern() {
     document.getElementById('eventDetails').style.display = '';
     document.getElementById('meiDetails').style.display = '';
 
+    if (activePerformerLayout() === 'horizontal') {
+      syncHorizontalChunks(scratchPatterns, { clef, mode, pitchInput, grandStaff: performerView.grandStaff });
+      updateCycleUI(null);
+      statusEl.textContent = `✓ ${events.length} events · scrolling`; statusEl.className = 'render-status ok';
+      scheduleGraphicRender();
+      return;
+    }
+    if (activePerformerLayout() === 'vertical') {
+      syncVerticalChunks(scratchPatterns, { clef, mode, pitchInput, grandStaff: performerView.grandStaff });
+      updateCycleUI(null);
+      statusEl.textContent = `✓ ${events.length} events · infinite vertical scroll`;
+      statusEl.className = 'render-status ok';
+      scheduleGraphicRender();
+      return;
+    }
+
+    const patOpts = {
+      clef, mode, pitchInput,
+      systemBreakEvery: getSystemBreakEvery(),
+      autoClef: document.body.classList.contains('performer'),
+      clefStrategy: activePerformerLayout() === 'horizontal' ? 'ledger' : 'median'
+    };
     let startCycle = playback.windowStart;
-    let { mei, stats } = patternToMEI(patInput, cycles, { clef, mode, pitchInput, startCycle });
+    let { mei, stats } = patternToMEI(patInput, cycles, { ...patOpts, startCycle });
     // Same static-preview safeguard as the live staff: skip leading empty cycles so a
     // pattern whose cycle 0 is silent (e.g. `every 3 inv …`) isn't shown blank.
     if (!playback.playing && !/<note\b/.test(mei)) {
       for (let look = 1; look <= 16; look++) {
-        const r = patternToMEI(patInput, cycles, { clef, mode, pitchInput, startCycle: playback.windowStart + look });
+        const r = patternToMEI(patInput, cycles, { ...patOpts, startCycle: playback.windowStart + look });
         if (/<note\b/.test(r.mei)) { mei = r.mei; stats = r.stats; startCycle = playback.windowStart + look; break; }
       }
     }
@@ -3294,7 +5321,7 @@ function inferLiveRenderOptions(patterns, selectedMode, selectedPitchInput) {
 
 function renderLivePattern() {
   if (!vrvToolkit) return;
-  const cycles     = parseInt(document.getElementById('cyclesOpt').value);
+  const cycles     = getRenderCycleCount();
   const clef       = document.getElementById('clefOpt').value;
   let mode         = document.getElementById('modeOpt').value;
   let pitchInput   = document.getElementById('pitchInputOpt').value;
@@ -3325,7 +5352,13 @@ function renderLivePattern() {
   if (patterns.length === 0) {
     statusEl.textContent = 'No lines flagged — check a line to send it to the score';
     statusEl.className = 'render-status';
-    document.getElementById('scoreArea').innerHTML = '<div class="placeholder"><span class="big">𝄞</span>Flag a line to send it to the score</div>';
+    // Horizontal keeps its own #horizontalStrip container across renders (chunks are appended to
+    // it, never rebuilt from scratch) — overwriting #scoreArea here would destroy it, and since
+    // ensureHorizontalStrip() only runs again on the NEXT fresh entry, generateNextHorizontalChunk
+    // would silently no-op forever once real patterns do arrive (needs a mode toggle to recover).
+    if (!['horizontal', 'vertical'].includes(activePerformerLayout())) {
+      document.getElementById('scoreArea').innerHTML = '<div class="placeholder"><span class="big">𝄞</span>Flag a line to send it to the score</div>';
+    }
     document.getElementById('eventDetails').style.display = 'none';
     document.getElementById('meiDetails').style.display = 'none';
     renderTimeline([], cycles, playback.windowStart);
@@ -3336,15 +5369,44 @@ function renderLivePattern() {
     const inferred = inferLiveRenderOptions(patterns, mode, pitchInput);
     mode = inferred.mode;
     pitchInput = inferred.pitchInput;
+
+    // Horizontal: append-only chunked rendering (see HORIZONTAL_CHUNK_CYCLES) — never builds a
+    // whole-buffer MEI or replaces the score wholesale. syncHorizontalChunks just records the
+    // latest patterns/options; masterLoop's lazy-generation loop does the actual Verovio work.
+    if (activePerformerLayout() === 'horizontal') {
+      syncHorizontalChunks(patterns, { clef, mode, pitchInput, grandStaff: performerView.grandStaff });
+      const labels = patterns.map(p => p.label).join(', ');
+      updateCycleUI(labels);
+      statusEl.textContent = `✓ live: ${labels} · scrolling`;
+      statusEl.className = 'render-status ok';
+      scheduleGraphicRender();
+      return;
+    }
+    if (activePerformerLayout() === 'vertical') {
+      syncVerticalChunks(patterns, { clef, mode, pitchInput, grandStaff: performerView.grandStaff });
+      const labels = patterns.map(p => p.label).join(', ');
+      updateCycleUI(labels);
+      statusEl.textContent = `✓ live: ${labels} · infinite vertical scroll`;
+      statusEl.className = 'render-status ok';
+      scheduleGraphicRender();
+      return;
+    }
+
+    const patOpts = {
+      clef, mode, pitchInput,
+      systemBreakEvery: getSystemBreakEvery(),
+      autoClef: document.body.classList.contains('performer'),
+      clefStrategy: activePerformerLayout() === 'horizontal' ? 'ledger' : 'median'
+    };
     let startCycle = playback.windowStart;
-    let { mei, stats } = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle });
+    let { mei, stats } = patternsToMEI(patterns, cycles, { ...patOpts, startCycle });
     // Static preview safeguard: if the shown window is empty (e.g. cycle 0 is the
     // fired cycle of `every 3 inv …`, which can be silent), advance to the first
     // non-empty cycle so the staff isn't blank. Never while playing — an empty cycle
     // genuinely plays empty. The timeline still labels the real cycle index.
     if (!playback.playing && !/<note\b/.test(mei)) {
       for (let look = 1; look <= 16; look++) {
-        const r = patternsToMEI(patterns, cycles, { clef, mode, pitchInput, startCycle: playback.windowStart + look });
+        const r = patternsToMEI(patterns, cycles, { ...patOpts, startCycle: playback.windowStart + look });
         if (/<note\b/.test(r.mei)) { mei = r.mei; stats = r.stats; startCycle = playback.windowStart + look; break; }
       }
     }
@@ -3488,7 +5550,7 @@ function paintNote(id, color) {
 // so a performer can follow the highlight instead of guessing where they
 // are in the score. Settles back to black after the note's own duration —
 // which for a degraded (?) note also doubles as "this one actually played".
-function highlightNote(ln) {
+function highlightNote(ln, durationCycles = ln.dur) {
   const prev = activeHighlight.get(ln.orbit);
   if (prev) {
     clearTimeout(prev.timer);
@@ -3496,7 +5558,7 @@ function highlightNote(ln) {
   }
 
   for (const id of ln.ids) paintNote(id, NOTE_HIGHLIGHT_COLOR);
-  const ms = Math.max(60, ln.dur * getCycleMs());
+  const ms = Math.max(60, durationCycles * getCycleMs());
   const timer = setTimeout(() => {
     for (const id of ln.ids) paintNote(id, '#000000');
     if (activeHighlight.get(ln.orbit)?.timer === timer) activeHighlight.delete(ln.orbit);
@@ -3504,12 +5566,19 @@ function highlightNote(ln) {
   activeHighlight.set(ln.orbit, { ids: ln.ids, timer });
 }
 
-function resolveLiveNotes(orbit, cycleFloat) {
+function resolveLiveNotes(orbit, cycleFloat, { replay = false } = {}) {
   for (const ln of liveNotes) {
     if (ln.done || ln.rest || ln.orbit !== orbit) continue;
     if (Math.abs(cycleFloat - ln.begin) < 0.02) {
       ln.done = true;
-      highlightNote(ln);
+      // A deterministic note may already be red from the clock-driven lead. Its timer is aligned
+      // to the real note end, so the OSC confirmation must not restart a full-duration timer and
+      // leave the mark red over the following note.
+      if (!replay && ln.preFlashed) continue;
+      // sweepLiveNotes replays stored events after a score rebuild. Resolve old notes so they
+      // cannot match again, but never flash a note whose sounding duration has already ended.
+      const remaining = ln.begin + ln.dur - currentCycleFloat();
+      if (!replay || remaining > 0) highlightNote(ln, replay ? remaining : ln.dur);
     }
   }
 }
@@ -3520,9 +5589,16 @@ function resolveLiveNotes(orbit, cycleFloat) {
 function resolveRests(cf) {
   for (const ln of liveNotes) {
     if (ln.done || !ln.rest) continue;
+    const remaining = ln.begin + ln.dur - cf;
+    // A rebuilt page can contain several cycles of historical rests. They are complete, not new
+    // red events; silently retire them instead of flashing them all during the same frame.
+    if (remaining <= 0) {
+      ln.done = true;
+      continue;
+    }
     if (cf >= ln.begin) {
       ln.done = true;
-      highlightNote(ln);
+      highlightNote(ln, remaining);
     }
   }
 }
@@ -3551,9 +5627,19 @@ function resolveUpcomingNotes(cf) {
     // (resolveLiveNotes), which only fires when the real event arrives — i.e.
     // only when the note actually plays.
     if (ln.done || ln.rest || ln.preFlashed || ln.prob < 1) continue;
+    const remaining = ln.begin + ln.dur - cf;
+    // On a rebuild, retire notes that ended earlier in the displayed buffer. Without this guard,
+    // every historical onset satisfied the lead-time test and unrelated old notes flashed red.
+    if (remaining <= 0) {
+      ln.done = true;
+      ln.preFlashed = true;
+      continue;
+    }
     if (cf >= ln.begin - leadCycles) {
       ln.preFlashed = true;
-      highlightNote(ln);
+      // `remaining` includes the small lead interval when this fires before the onset, so the
+      // timer still ends at the musical end of the note rather than leadMs too early.
+      highlightNote(ln, remaining);
     }
   }
 }
@@ -3564,7 +5650,7 @@ function resolveUpcomingNotes(cf) {
 function sweepLiveNotes() {
   if (!liveNotes.length) return;
   for (const [ci, evs] of liveEvents.byCycle) {
-    for (const ev of evs) resolveLiveNotes(ev.orbit, ci + ev.begin);
+    for (const ev of evs) resolveLiveNotes(ev.orbit, ci + ev.begin, { replay: true });
   }
 }
 
@@ -3612,14 +5698,54 @@ function recordTidalEvent(ev) {
 function applyRemoteClock(msg) {
   const cps = Number(msg.cps), cycle = Number(msg.cycle);
   if (!Number.isFinite(cps) || !Number.isFinite(cycle) || cps <= 0) return;
+  if (remoteClock.explicitlyStopped) return;
+  const now = performance.now();
+  const extrapolated = clockIsLive() ? currentCycleFloat() : cycle;
+  if (playback.playing) playStop();
   remoteClock.cps = cps;
-  remoteClock.cycle = cycle;
-  remoteClock.at = performance.now();
+  // OSC events sharing an onset can arrive a few milliseconds apart. Never
+  // rewind to each packet's timestamp: keep the extrapolated clock monotonic
+  // so performer scrolling remains fluid instead of trembling on dense music.
+  remoteClock.cycle = Math.max(extrapolated, cycle);
+  remoteClock.at = now;
+  remoteClock.playing = true;
   const el = document.getElementById('cpsInput');
   if (Math.abs((parseFloat(el.value) || 0) - cps) > 1e-4) {
     el.value = cps.toFixed(4);
     updateCpsDisplay();
   }
+}
+
+function applyRemoteTransport(msg) {
+  const shouldPlay = msg.play !== false;
+  const now = performance.now();
+
+  if (shouldPlay) {
+    const anchor = clockIsLive()
+      ? currentCycleFloat()
+      : remoteClock.at > 0 ? remoteClock.cycle : Math.max(0, Number(msg.cycle) || 0);
+    if (playback.playing) playStop();
+    remoteClock.cycle = anchor;
+    remoteClock.cps = remoteClock.cps > 0 ? remoteClock.cps : getCps();
+    remoteClock.at = now;
+    remoteClock.playing = true;
+    remoteClock.explicitlyStopped = false;
+    playback.cycleIndex = Math.floor(anchor);
+    playback.windowStart = windowStartForLayout(anchor);
+    renderCurrent();
+  } else {
+    const frozenCycle = currentCycleFloat();
+    if (playback.playing) playStop();
+    remoteClock.cycle = frozenCycle;
+    remoteClock.cps = remoteClock.cps > 0 ? remoteClock.cps : getCps();
+    remoteClock.at = now;
+    remoteClock.playing = false;
+    remoteClock.explicitlyStopped = true;
+    playback.cycleIndex = Math.max(0, Math.floor(frozenCycle));
+    positionHorizontalScoreChunked(frozenCycle);
+    positionVerticalScore(frozenCycle);
+  }
+  updatePerformerToolbar();
 }
 
 // Coalesce to one render per animation frame — a block must appear as close
@@ -3642,8 +5768,8 @@ function renderGraphic() {
     document.getElementById('graphicSourceLabel').textContent = '';
     return;
   }
-  const numCycles = parseInt(document.getElementById('cyclesOpt').value);
-  const start = playback.cycleIndex;
+  const numCycles = getRenderCycleCount();
+  const start = playback.windowStart;
 
   // lanes: label -> [{value, x (0..1 across window), w}]
   const lanes = new Map();
@@ -3794,6 +5920,18 @@ let allChain = [];
 
 function setBridgeDot(state) {
   document.getElementById('bridgeDot').className = 'live-dot' + (state ? ` ${state}` : '');
+  const performerState = document.getElementById('performerBridgeState');
+  if (performerState) {
+    const labels = {
+      connected: 'Bridge connected',
+      connecting: 'Connecting',
+      error: 'Bridge error',
+      idle: 'Bridge idle'
+    };
+    const normalized = state || 'idle';
+    performerState.dataset.state = normalized;
+    performerState.textContent = labels[normalized] || labels.idle;
+  }
 }
 
 function markBridgeUpdate() {
@@ -3808,6 +5946,36 @@ function stripTidalComments(source) {
   }).join('\n');
 }
 
+// Concert-program metadata from Tidal comments: `-- name: …`, `-- instrument: …`,
+// `-- performed by: …` (optional space after `--`, case-insensitive). Populates the
+// performer header. Absent field → blank.
+function parseProgramMeta(source) {
+  const grab = re => { const m = String(source || '').match(re); return m ? m[1].trim() : ''; };
+  return {
+    name:       grab(/^[ \t]*--[ \t]*name[ \t]*:[ \t]*(.+)$/mi),
+    instrument: grab(/^[ \t]*--[ \t]*instrument[ \t]*:[ \t]*(.+)$/mi),
+    performer:  grab(/^[ \t]*--[ \t]*performed[ \t]*by[ \t]*:[ \t]*(.+)$/mi),
+  };
+}
+
+function updateProgramMeta(source) {
+  const meta = parseProgramMeta(source);
+  document.getElementById('pieceName').textContent = meta.name;
+  document.getElementById('pieceInstrument').textContent = meta.instrument;
+  document.getElementById('piecePerformer').textContent = meta.performer ? `performed by ${meta.performer}` : '';
+}
+
+// A continuation line belongs to the `dN $ …` statement above it. It counts as a
+// continuation when it is INDENTED, or (common Tidal style, unindented) when it starts
+// with a chain/effect operator: `$`  `#`  `|…` (|+|, |>, …)  `<~`  `~>`  `+`. Blank lines,
+// comments (`--`), and new `dN`/`all` headers are never continuations.
+function isTidalContinuationLine(line) {
+  const s = String(line).trim();
+  if (!s || s.startsWith('--')) return false;
+  if (/^_?(?:d\d+|all)\b\s*\$/.test(s)) return false;
+  return /^\s+\S/.test(line) || /^(\$|#|\||<~|~>|\+)/.test(s);
+}
+
 function joinTidalContinuationLines(source) {
   const lines = String(source).split(/\r?\n/);
   const out = [];
@@ -3816,7 +5984,7 @@ function joinTidalContinuationLines(source) {
     if (/^\s*(?:d\d+|all)\b\s*\$/.test(line)) {
       if (current) out.push(current);
       current = line.trim();
-    } else if (current && /^\s+/.test(line) && line.trim()) {
+    } else if (current && isTidalContinuationLine(line)) {
       current += ' ' + line.trim();
     } else {
       if (current) {
@@ -3933,30 +6101,82 @@ function transformArpgPattern(pattern) {
   return arpLayers.map(layer => layer.map(serializePatternElement).join(' ')).join(', ');
 }
 
+// A space-separated arp mode list ("updown thumbup") subdivides EACH cycle into N equal
+// time slots — first slot updown, second thumbup, etc. (Tidal's `arp` innerJoins the mode
+// pattern over the chord). So a chord that spans several mode slots is arpeggiated by each
+// slot's mode over its own time-slice; a chord that sits inside a single slot uses that one
+// mode (the aligned M chords == N modes case, and single-mode arps, stay a flat arpeggio).
+// We track each element's [a,b) time span while walking the parsed pattern.
 function transformPatternWithArpModes(pattern, modePattern) {
   let layers;
   try { layers = promotePoly(parseTokens(tokenise(pattern), 0).layers); }
   catch { return null; }
   const modes = cycleModeValues(modePattern);
-  const state = { i: 0 };
-  const apply = el => {
+  const N = modes.length || 1;
+  const EPS = 1e-9;
+
+  // Arpeggiate one chord (values) occupying [a,b) under the N mode slots it overlaps.
+  const arpChord = (values, a, b, prob) => {
+    const span = b - a;
+    const slots = [];
+    for (let i = 0; i < N; i++) {
+      const os = Math.max(a, i / N), oe = Math.min(b, (i + 1) / N);
+      if (oe - os > EPS) slots.push({ mode: modes[i] || 'up', os, oe });
+    }
+    if (slots.length <= 1) {
+      const mode = slots.length ? slots[0].mode : (modes[0] || 'up');
+      return { type: 'group', weight: 1,
+        children: orderedArpValues(values, mode).map(value => ({ type: 'leaf', value, weight: 1, prob })) };
+    }
+    // Multiple modes cover this chord → one sub-group per slot, each holding that mode's
+    // arpeggio notes whose onsets fall in the slot. Equal slots serialise as [[..][..]].
+    const subGroups = slots.map(({ mode, os, oe }) => {
+      const arp = orderedArpValues(values, mode);
+      const K = arp.length;
+      const j0 = Math.round(((os - a) / span) * K);
+      const j1 = Math.round(((oe - a) / span) * K);
+      const slice = arp.slice(j0, j1);
+      const notes = slice.length ? slice : [arp[Math.min(K - 1, j0)] || values[0]];
+      return { type: 'group', weight: 1, children: notes.map(value => ({ type: 'leaf', value, weight: 1, prob })) };
+    });
+    return { type: 'group', weight: 1, children: subGroups };
+  };
+
+  const mapSpan = (el, a, b) => {
     if (el.type === 'leaf') {
       const values = chordLeafNames(el.value);
-      if (!values) return el;
-      const mode = modes.length ? modes[state.i % modes.length] : 'up';
-      state.i++;
-      return {
-        type: 'group',
-        children: orderedArpValues(values, mode).map(value => ({ type: 'leaf', value, weight: 1, prob: el.prob })),
-        weight: el.weight
-      };
+      if (!values || values.length < 2) return el; // single notes / non-chords untouched
+      return { ...arpChord(values, a, b, el.prob), weight: el.weight };
     }
-    if (el.children) return { ...el, children: el.children.map(apply) };
-    if (el.alternatives) return { ...el, alternatives: el.alternatives.map(apply) };
-    if (el.inner) return { ...el, inner: apply(el.inner) };
+    if (el.children) {
+      const tw = el.children.reduce((s, c) => s + (c.weight || 1), 0) || 1;
+      let acc = 0;
+      const children = el.children.map(c => {
+        const w = c.weight || 1;
+        const ca = a + (acc / tw) * (b - a), cb = a + ((acc + w) / tw) * (b - a);
+        acc += w;
+        return mapSpan(c, ca, cb);
+      });
+      return { ...el, children };
+    }
+    // `<…>` alternatives each occupy the full parent span on the cycle they play.
+    if (el.alternatives) return { ...el, alternatives: el.alternatives.map(alt => mapSpan(alt, a, b)) };
+    if (el.inner) return { ...el, inner: mapSpan(el.inner, a, b) };
     return el;
   };
-  const arpLayers = layers.map(layer => layer.map(apply));
+
+  const arpLayer = layer => {
+    const tw = layer.reduce((s, el) => s + (el.weight || 1), 0) || 1;
+    let acc = 0;
+    return layer.map(el => {
+      const w = el.weight || 1;
+      const a = acc / tw, b = (acc + w) / tw;
+      acc += w;
+      return mapSpan(el, a, b);
+    });
+  };
+
+  const arpLayers = layers.map(arpLayer);
   return arpLayers.map(layer => layer.map(serializePatternElement).join(' ')).join(', ');
 }
 
@@ -4174,6 +6394,9 @@ function handleBridgeMessage(message) {
   }
 
   if (message.type === 'source-update' && typeof message.source === 'string') {
+    // Concert-program metadata comes from `-- name/instrument/performed by` comments in the
+    // RAW source (parse before stripTidalComments removes them). Shown in the performer header.
+    updateProgramMeta(message.source);
     const activeSource = stripTidalComments(message.source);
     let sourceForRegex = joinTidalContinuationLines(activeSource);
     // Matches both `setcps (135/60/4)` and bare `setcps 0.55`; `setbpm 120`
@@ -4216,6 +6439,7 @@ function handleBridgeMessage(message) {
         // Panic/hush: blank everything (staff + graphic) until the next pattern.
         scoreSilenced = true;
         liveEvents.byCycle.clear();
+        applyRemoteTransport({ play: false });
       } else {
         const o = orbitOfLine(t);
         if (o) activeLineByOrbit[o] = t;
@@ -4390,6 +6614,13 @@ function handleBridgeMessage(message) {
   // float-based events can't drive tuplet detection — see README).
   if (message.type === 'tidal-event') { recordTidalEvent(message); return; }
   if (message.type === 'clock')       { applyRemoteClock(message);  return; }
+  if (message.type === 'sync') {
+    // Older installed forwarder copies sent play:true even immediately after
+    // hush. The source-update state is authoritative, so never restart a
+    // deliberately silenced score until a real pattern is evaluated.
+    applyRemoteTransport({ ...message, play: message.play !== false && !scoreSilenced });
+    return;
+  }
 }
 
 function connectBridge() {
@@ -4421,12 +6652,16 @@ function connectBridge() {
   statusEl.textContent = 'Connecting…';
 
   socket.addEventListener('open', () => {
+    // A reconnect may happen while Tidal is still playing; allow the next OSC
+    // clock packet to resume following even if the disconnect froze the view.
+    remoteClock.explicitlyStopped = false;
     setBridgeDot('connected');
     statusEl.textContent = 'Bridge connected';
   });
 
   socket.addEventListener('close', () => {
     if (bridgeSocket !== socket) return;
+    if (clockIsLive()) applyRemoteTransport({ play: false });
     bridgeSocket = null;
     btn.textContent = 'Connect bridge';
     if (bridgeAutoReconnect) {
@@ -4464,7 +6699,7 @@ document.getElementById('nextCycle').addEventListener('click', () => stepCycle(1
 document.getElementById('cycleIndex').addEventListener('change', () => {
   const v = Math.max(0, parseInt(document.getElementById('cycleIndex').value) || 0);
   playback.cycleIndex = v;
-  playback.windowStart = v;
+  playback.windowStart = windowStartForLayout(v);
   renderCurrent();
 });
 document.getElementById('cpsInput').addEventListener('input', () => {
@@ -4480,7 +6715,10 @@ document.getElementById('bpmInput').addEventListener('input', () => {
 });
 
 ['cyclesOpt', 'modeOpt', 'pitchInputOpt', 'clefOpt'].forEach(id => {
-  document.getElementById(id).addEventListener('change', renderCurrent);
+  document.getElementById(id).addEventListener('change', () => {
+    if (id === 'cyclesOpt') updatePerformerToolbar();
+    renderCurrent();
+  });
 });
 
 document.querySelectorAll('.preset-btn[data-p]').forEach(btn => {
@@ -4493,8 +6731,47 @@ document.querySelectorAll('.preset-btn[data-p]').forEach(btn => {
 });
 
 document.getElementById('viewOpt').addEventListener('change', applyViewOption);
-document.getElementById('staffSourceOpt').addEventListener('change', renderCurrent);
+document.getElementById('staffSourceOpt').addEventListener('change', () => {
+  updatePerformerToolbar();
+  renderCurrent();
+});
 
+document.querySelectorAll('[data-performer-layout]').forEach(btn => {
+  btn.addEventListener('click', () => setPerformerLayout(btn.dataset.performerLayout));
+});
+document.querySelectorAll('.performer-theme-btn[data-performer-theme]').forEach(btn => {
+  btn.addEventListener('click', () => setPerformerTheme(btn.dataset.performerTheme));
+});
+document.querySelectorAll('[data-size-preset]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setPerformerSizePreset(btn.dataset.sizePreset);
+  });
+});
+document.getElementById('grandStaffBtn').addEventListener('click', () => {
+  performerView.grandStaff = !performerView.grandStaff;
+  updatePerformerToolbar();
+  if (activePerformerLayout() === 'horizontal') ensureHorizontalStrip();
+  if (activePerformerLayout() === 'vertical') ensureVerticalStrip();
+  renderCurrent();
+});
+let performerResizeTimer = null;
+window.addEventListener('resize', () => {
+  if (!document.body.classList.contains('performer')) return;
+  clearTimeout(performerResizeTimer);
+  performerResizeTimer = setTimeout(() => {
+    // Tablet rotation changes both available width and height. Rebuild only the active
+    // append-only strip so it is engraved for the new orientation instead of retaining
+    // measurements from the previous one. Keep the established Computer path unchanged.
+    if (performerView.sizePreset === 'tablet') {
+      if (activePerformerLayout() === 'horizontal') ensureHorizontalStrip();
+      if (activePerformerLayout() === 'vertical') ensureVerticalStrip();
+      renderCurrent();
+      return;
+    }
+    if (activePerformerLayout() === 'vertical') ensureVerticalStrip();
+    renderCurrent();
+  }, 140);
+});
 // Played-staff re-render, trailing-coalesced: Verovio layout costs tens of
 // ms, so cap staff refreshes at ~5/s while events stream in.
 let playedStaffTimer = null;
@@ -4516,6 +6793,17 @@ function scheduleTypedOverlay() {
 document.getElementById('performerBtn').addEventListener('click', () => {
   const on = document.body.classList.toggle('performer');
   document.getElementById('performerBtn').textContent = on ? '🎭 Exit' : '🎭 Performer';
+  if (on) {
+    setPerformerLayout(performerView.layout);
+  } else {
+    resetVerticalMotion();
+    performerView.paused = false;
+    document.body.classList.remove('performer-horizontal', 'performer-vertical');
+    document.getElementById('scoreViewport').style.height = '';
+    playback.windowStart = playback.cycleIndex;
+    updatePerformerToolbar();
+    renderCurrent();
+  }
 });
 document.getElementById('themeBtn').addEventListener('click', () => {
   const dark = document.body.classList.toggle('dark');
@@ -4528,8 +6816,12 @@ document.addEventListener('keydown', e => {
 });
 
 // Boot
+setPerformerSizePreset('computer', { render: false });
+try { setPerformerTheme(localStorage.getItem('performerTheme') || 'blue'); }
+catch { setPerformerTheme('blue'); }
 updateCpsDisplay();
 updateCycleUI(null);
+updatePerformerToolbar();
 applyViewOption();
 requestAnimationFrame(masterLoop);
 initVerovio();

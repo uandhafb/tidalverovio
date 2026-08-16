@@ -178,9 +178,11 @@ module.exports = {
     this.evaluationSyncTimer = setTimeout(async () => {
       this.evaluationSyncTimer = null;
       try {
+        let transportShouldPlay = true;
         if (isHush) {
           // Panic: tell the score to blank everything, not to read the cursor line.
           await this.sendEditor(editor, { quiet: true, selectedLine: "all", selectedLineText: "hush" });
+          transportShouldPlay = false;
         } else {
           const selectedLineText = rawEvaluatedLine(editor);
           const evaluatedPattern = extractSelectedOrCurrentPattern(editor);
@@ -189,18 +191,19 @@ module.exports = {
             selectedLine: evaluatedPattern ? evaluatedPattern.line : orbitFromRawLine(selectedLineText),
             selectedLineText
           });
+          transportShouldPlay = !/^\s*hush\b/.test(selectedLineText);
         }
-        await this.sendSyncMessage();
+        await this.sendSyncMessage(transportShouldPlay);
       } catch {
         // postBridge already reports the connection problem.
       }
     }, delay);
   },
 
-  async sendSyncMessage() {
+  async sendSyncMessage(play = true) {
     await postBridge("/sync", {
       cycle: 0,
-      play: true
+      play
     });
   }
 };
@@ -233,25 +236,71 @@ function firstFlaggedLine(source) {
   return "";
 }
 
+// The `dN $`/`all $` statement the cursor sits in. A multi-line pattern is a header
+// line (`dN $ …`) plus indented continuation lines (`$ n …`, `# room …`); evaluating
+// with the cursor on a continuation line must still resolve to the owning orbit. Walk
+// up to the header, then join the header + its continuations into one line (mirroring
+// the score page's joinTidalContinuationLines). Returns null if the cursor isn't inside
+// a dN/all statement (e.g. a bare `dN silence` mute, handled by the caller's fallback).
+function currentStatement(editor) {
+  const cursor = editor.getCursorBufferPosition && editor.getCursorBufferPosition();
+  if (!cursor || !editor.lineTextForBufferRow) return null;
+  const isHeader = t => /^\s*_?(?:d\d+|all)\b\s*\$/.test(t || "");
+  // Continuation = indented, OR (common unindented Tidal style) starts with a chain/effect
+  // operator: $ # |… <~ ~> + . Not a comment, blank, or a new dN/all header.
+  const isContinuation = t => {
+    const s = String(t || "").trim();
+    if (!s || s.startsWith("--") || isHeader(t)) return false;
+    return /^\s+\S/.test(t || "") || /^(\$|#|\||<~|~>|\+)/.test(s);
+  };
+
+  let headerRow = -1;
+  for (let r = cursor.row; r >= 0; r--) {
+    const t = editor.lineTextForBufferRow(r);
+    if (isHeader(t)) { headerRow = r; break; }
+    if (!isContinuation(t)) break; // left the statement (blank/non-indented) with no header
+  }
+  if (headerRow < 0) return null;
+
+  const lineCount = editor.getLineCount ? editor.getLineCount() : cursor.row + 1;
+  const parts = [String(editor.lineTextForBufferRow(headerRow)).trim()];
+  for (let r = headerRow + 1; r < lineCount; r++) {
+    const t = editor.lineTextForBufferRow(r);
+    if (!isContinuation(t)) break;
+    parts.push(String(t).trim());
+  }
+  return { headerRow, header: parts[0], text: parts.join(" ") };
+}
+
 function extractSelectedOrCurrentPattern(editor) {
   const selectedText = editor.getSelectedText && editor.getSelectedText().trim();
   if (selectedText) {
-    const selectedPattern = extractPatternFromLine(selectedText);
+    // Collapse a multi-line selection so the note token on a later line is found too.
+    const selectedPattern = extractPatternFromLine(selectedText.replace(/\r?\n\s*/g, " "));
     if (selectedPattern) return selectedPattern;
+  }
+
+  const stmt = currentStatement(editor);
+  if (stmt) {
+    const stmtPattern = extractPatternFromLine(stmt.text);
+    if (stmtPattern) return stmtPattern;
   }
 
   const cursor = editor.getCursorBufferPosition && editor.getCursorBufferPosition();
   if (!cursor) return null;
-
-  const currentLine = editor.lineTextForBufferRow(cursor.row).trim();
-  return extractPatternFromLine(currentLine);
+  return extractPatternFromLine(editor.lineTextForBufferRow(cursor.row).trim());
 }
 
-// The raw text of the line the performer just evaluated (selection's first line,
-// else the cursor's line) — pattern OR mute (`dN silence`, `_dN …`, `hush`).
+// The text of the WHOLE statement the performer just evaluated (multi-line collapsed to
+// one line), so the score page gets the complete `dN $ … $ note "<…>" # …` — matching the
+// single-line case. Returning only the header line dropped everything after the first line
+// (e.g. the `# s "…"`/`$ note "…"`), so the score couldn't match/render the split pattern.
+// Also carries the orbit for orbitFromRawLine / mute detection (`dN silence`, `_dN …`, `hush`).
 function rawEvaluatedLine(editor) {
   const selectedText = editor.getSelectedText && editor.getSelectedText().trim();
-  if (selectedText) return selectedText.split(/\r?\n/)[0].trim();
+  if (selectedText) return selectedText.replace(/\r?\n\s*/g, " ").trim();
+  const stmt = currentStatement(editor);
+  if (stmt) return stmt.text;
   const cursor = editor.getCursorBufferPosition && editor.getCursorBufferPosition();
   if (!cursor) return "";
   return editor.lineTextForBufferRow(cursor.row).trim();
